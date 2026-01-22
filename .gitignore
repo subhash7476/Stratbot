@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+conda-env/
+
+# Streamlit
+.streamlit/
+
+# Environment variables
+.env
+.env.*
+
+# Logs & temp
+*.log
+*.tmp
+
+# Databases / local data
+data/
+db/
+*.duckdb
+
+# IDE
+.vscode/
+.idea/
+
+# Windows reserved devices
+nul
+NUL
+
+# Never commit secrets
+*.env
+*.key
+*.pem
+*.secret
+*config*

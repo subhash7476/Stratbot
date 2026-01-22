@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+
+{% block title %}Market Scanner - Trading Bot Pro{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold">Indian Market Squeeze Scanner</h1>
+            <p class="text-base-content/70">Scan for volatility contraction breakout setups</p>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <p class="text-base-content/70 text-sm">Active Signals</p>
+                <p class="text-2xl font-bold text-primary" id="stat-active">{{ stats.active_signals }}</p>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <p class="text-base-content/70 text-sm">Triggered Today</p>
+                <p class="text-2xl font-bold text-success" id="stat-triggered">{{ stats.triggered_today }}</p>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <p class="text-base-content/70 text-sm">Instruments</p>
+                <p class="text-2xl font-bold" id="stat-instruments">{{ stats.instruments_count }}</p>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <p class="text-base-content/70 text-sm">Last Scan</p>
+                <p class="text-lg font-bold" id="stat-last-scan">
+                    {% if stats.last_scan %}{{ format_datetime(stats.last_scan) }}{% else %}Never{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scanner Control Panel -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Scan Configuration -->
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Scan Configuration
+                </h2>
+                <div class="divider my-2"></div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Stop Loss Mode</span>
+                    </label>
+                    <select id="sl-mode" class="select select-bordered w-full">
+                        <option value="ATR based" selected>ATR Based</option>
+                        <option value="Fixed %">Fixed %</option>
+                        <option value="Swing Low/High">Swing Low/High</option>
+                    </select>
+                </div>
+
+                <div class="form-control mt-3">
+                    <label class="label">
+                        <span class="label-text">ATR Multiplier</span>
+                    </label>
+                    <input type="number" id="atr-mult" value="2.0" step="0.5" min="0.5" max="5"
+                           class="input input-bordered w-full" />
+                </div>
+
+                <div class="form-control mt-3">
+                    <label class="label">
+                        <span class="label-text">Risk:Reward Ratio</span>
+                    </label>
+                    <input type="number" id="rr-ratio" value="2.0" step="0.5" min="1" max="5"
+                           class="input input-bordered w-full" />
+                </div>
+
+                <div class="form-control mt-3">
+                    <label class="label">
+                        <span class="label-text">Min Score</span>
+                    </label>
+                    <input type="number" id="min-score" value="4" min="1" max="10"
+                           class="input input-bordered w-full" />
+                </div>
+
+                <div class="form-control mt-3">
+                    <label class="cursor-pointer label">
+                        <span class="label-text">Rebuild Resampled Data</span>
+                        <input type="checkbox" id="rebuild-resampled" checked class="checkbox checkbox-primary" />
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scan Control -->
+        <div class="card bg-base-100 shadow-xl lg:col-span-2">
+            <div class="card-body">
+                <h2 class="card-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                    </svg>
+                    Run Scanner
+                </h2>
+                <div class="divider my-2"></div>
+
+                <div class="flex flex-wrap gap-3">
+                    <button class="btn btn-primary btn-lg" id="start-scan-btn" onclick="startScan()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                        </svg>
+                        Start Scan
+                    </button>
+                    <button class="btn btn-outline btn-error" id="cancel-scan-btn" onclick="cancelScan()" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Cancel
+                    </button>
+                </div>
+
+                <!-- Progress Section -->
+                <div id="scan-progress" class="mt-6 hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium" id="progress-phase">Initializing...</span>
+                        <span class="text-sm" id="progress-percent">0%</span>
+                    </div>
+                    <progress class="progress progress-primary w-full" id="progress-bar" value="0" max="100"></progress>
+                    <p class="text-sm text-base-content/70 mt-2" id="progress-symbol">-</p>
+                </div>
+
+                <!-- Scan Result Summary -->
+                <div id="scan-result" class="mt-6 hidden">
+                    <div class="alert alert-success">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div>
+                            <h3 class="font-bold">Scan Complete</h3>
+                            <div class="text-xs">Found <span id="result-count">0</span> signals</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Signals Table -->
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <div class="flex items-center justify-between">
+                <h2 class="card-title">Active Signals</h2>
+                <div class="flex gap-2">
+                    <select id="signal-filter" class="select select-bordered select-sm" onchange="loadSignals()">
+                        <option value="active">Active</option>
+                        <option value="triggered">Triggered</option>
+                        <option value="expired">Expired</option>
+                    </select>
+                    <button class="btn btn-ghost btn-sm" onclick="loadSignals()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                    </button>
+                    <button class="btn btn-ghost btn-sm text-error" onclick="clearSignals()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="divider my-2"></div>
+            <div class="overflow-x-auto">
+                <table class="table table-compact w-full" id="signals-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Type</th>
+                            <th>Entry</th>
+                            <th>SL</th>
+                            <th>TP</th>
+                            <th>Current</th>
+                            <th>P&L %</th>
+                            <th>Score</th>
+                            <th>Strategy</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-tbody">
+                        <tr>
+                            <td colspan="10" class="text-center text-base-content/50 py-8">
+                                Loading signals...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script>
+    let currentScanId = null;
+    let socket = null;
+
+    // Initialize SocketIO connection
+    function initSocket() {
+        socket = io('/scanner', {
+            transports: ['websocket', 'polling']
+        });
+
+        socket.on('connect', () => {
+            console.log('Connected to scanner namespace');
+            updateWsStatus(true);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from scanner namespace');
+            updateWsStatus(false);
+        });
+
+        socket.on('scan_progress', (data) => {
+            if (data.scan_id === currentScanId) {
+                updateProgress(data);
+            }
+        });
+
+        socket.on('scan_complete', (data) => {
+            if (data.scan_id === currentScanId) {
+                onScanComplete(data);
+            }
+        });
+
+        socket.on('scan_error', (data) => {
+            if (data.scan_id === currentScanId) {
+                onScanError(data);
+            }
+        });
+    }
+
+    function updateWsStatus(connected) {
+        const badge = document.getElementById('ws-status');
+        if (badge) {
+            badge.className = connected ? 'badge badge-success gap-1' : 'badge badge-error gap-1';
+            badge.innerHTML = `<span class="status-dot ${connected ? 'connected' : 'disconnected'}"></span> WS`;
+        }
+    }
+
+    async function startScan() {
+        const btn = document.getElementById('start-scan-btn');
+        const cancelBtn = document.getElementById('cancel-scan-btn');
+        const progressDiv = document.getElementById('scan-progress');
+        const resultDiv = document.getElementById('scan-result');
+
+        // Get config
+        const config = {
+            sl_mode: document.getElementById('sl-mode').value,
+            atr_mult: parseFloat(document.getElementById('atr-mult').value),
+            rr_ratio: parseFloat(document.getElementById('rr-ratio').value),
+            min_score: parseInt(document.getElementById('min-score').value),
+            rebuild_resampled: document.getElementById('rebuild-resampled').checked
+        };
+
+        btn.classList.add('loading');
+        btn.disabled = true;
+        cancelBtn.disabled = false;
+        progressDiv.classList.remove('hidden');
+        resultDiv.classList.add('hidden');
+
+        try {
+            const response = await fetch('{{ url_for("scanner.start_scan") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                currentScanId = data.scan_id;
+                showToast('Scan started', 'info');
+            } else {
+                throw new Error(data.error || 'Failed to start scan');
+            }
+
+        } catch (error) {
+            console.error('Error starting scan:', error);
+            showToast('Failed to start scan: ' + error.message, 'error');
+            btn.classList.remove('loading');
+            btn.disabled = false;
+            cancelBtn.disabled = true;
+            progressDiv.classList.add('hidden');
+        }
+    }
+
+    function updateProgress(data) {
+        const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+
+        document.getElementById('progress-bar').value = percent;
+        document.getElementById('progress-percent').textContent = percent + '%';
+        document.getElementById('progress-phase').textContent = data.phase || 'Scanning...';
+        document.getElementById('progress-symbol').textContent = data.symbol ? `Processing: ${data.symbol}` : '-';
+    }
+
+    function onScanComplete(data) {
+        const btn = document.getElementById('start-scan-btn');
+        const cancelBtn = document.getElementById('cancel-scan-btn');
+        const progressDiv = document.getElementById('scan-progress');
+        const resultDiv = document.getElementById('scan-result');
+
+        btn.classList.remove('loading');
+        btn.disabled = false;
+        cancelBtn.disabled = true;
+        progressDiv.classList.add('hidden');
+        resultDiv.classList.remove('hidden');
+
+        document.getElementById('result-count').textContent = data.signals_found || 0;
+        currentScanId = null;
+
+        showToast(`Scan complete! Found ${data.signals_found} signals`, 'success');
+        loadSignals();
+    }
+
+    function onScanError(data) {
+        const btn = document.getElementById('start-scan-btn');
+        const cancelBtn = document.getElementById('cancel-scan-btn');
+        const progressDiv = document.getElementById('scan-progress');
+
+        btn.classList.remove('loading');
+        btn.disabled = false;
+        cancelBtn.disabled = true;
+        progressDiv.classList.add('hidden');
+
+        currentScanId = null;
+        showToast('Scan failed: ' + data.error, 'error');
+    }
+
+    async function cancelScan() {
+        if (!currentScanId) return;
+
+        try {
+            const response = await fetch(`{{ url_for("scanner.cancel_scan", scan_id="SCANID") }}`.replace('SCANID', currentScanId), {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('Scan cancelled', 'warning');
+            }
+
+        } catch (error) {
+            console.error('Error cancelling scan:', error);
+        }
+
+        document.getElementById('start-scan-btn').classList.remove('loading');
+        document.getElementById('start-scan-btn').disabled = false;
+        document.getElementById('cancel-scan-btn').disabled = true;
+        document.getElementById('scan-progress').classList.add('hidden');
+        currentScanId = null;
+    }
+
+    async function loadSignals() {
+        const status = document.getElementById('signal-filter').value;
+        const tbody = document.getElementById('signals-tbody');
+
+        try {
+            const response = await fetch(`{{ url_for("scanner.signals") }}?status=${status}`);
+            const data = await response.json();
+
+            if (!data.success || !data.signals || data.signals.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center text-base-content/50 py-8">No ${status} signals</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.signals.map(signal => {
+                const pnl = signal.current_price && signal.entry_price
+                    ? ((signal.current_price - signal.entry_price) / signal.entry_price * 100 * (signal.signal_type === 'LONG' ? 1 : -1))
+                    : null;
+
+                return `
+                    <tr class="hover">
+                        <td class="font-medium">${signal.symbol}</td>
+                        <td>
+                            <span class="badge badge-${signal.signal_type === 'LONG' ? 'success' : 'error'} badge-sm">
+                                ${signal.signal_type}
+                            </span>
+                        </td>
+                        <td class="font-mono">${formatPrice(signal.entry_price)}</td>
+                        <td class="font-mono text-error">${formatPrice(signal.sl_price)}</td>
+                        <td class="font-mono text-success">${formatPrice(signal.tp_price)}</td>
+                        <td class="font-mono">${formatPrice(signal.current_price)}</td>
+                        <td class="font-mono ${pnl !== null ? (pnl >= 0 ? 'text-success' : 'text-error') : ''}">
+                            ${pnl !== null ? formatPercent(pnl) : '-'}
+                        </td>
+                        <td>
+                            <div class="badge badge-${signal.score >= 6 ? 'primary' : signal.score >= 4 ? 'warning' : 'ghost'} badge-sm">
+                                ${signal.score}
+                            </div>
+                        </td>
+                        <td class="text-xs">${signal.strategy || '-'}</td>
+                        <td class="text-xs text-base-content/70">
+                            ${signal.created_at ? new Date(signal.created_at).toLocaleString() : '-'}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+        } catch (error) {
+            console.error('Error loading signals:', error);
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-error py-8">Error loading signals</td></tr>`;
+        }
+    }
+
+    async function clearSignals() {
+        if (!confirm('Are you sure you want to clear all signals with the current filter?')) return;
+
+        const status = document.getElementById('signal-filter').value;
+
+        try {
+            const response = await fetch('{{ url_for("scanner.clear_signals") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('Signals cleared', 'success');
+                loadSignals();
+            } else {
+                throw new Error(data.error);
+            }
+
+        } catch (error) {
+            console.error('Error clearing signals:', error);
+            showToast('Failed to clear signals', 'error');
+        }
+    }
+
+    // Initialize
+    initSocket();
+    loadSignals();
+
+    // Auto-refresh signals every 30 seconds
+    setInterval(loadSignals, 30000);
+</script>
+{% endblock %}
