@@ -1,0 +1,21 @@
+{
+    "bars_processed": 6000,
+    "signals_generated": 375,
+    "trades_executed": 1,
+    "strategies_disabled": [],
+    "current_positions": {
+        "NSE_EQ|INE742F01042": 80.0
+    },
+    "execution_mode": "paper",
+    "end_time": "2026-01-23 15:29:00",
+    "total_pnl": 0,
+    "win_rate": 0.0,
+    "trade_count": 0,
+    "max_drawdown": 0.0,
+    "total_fees": 117.8488,
+    "sharpe_ratio": 0.0,
+    "final_equity": 100000.0,
+    "last_trade_time": "2026-01-01T09:20:00",
+    "run_hash": "eecf4867e97ac730",
+    "completed_at": "2026-01-30T23:54:56.379112"
+}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Trading Platform{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .sidebar-link { transition: all 0.2s; border-left: 3px solid transparent; }
+        .sidebar-link.active { background: rgba(59, 130, 246, 0.1); border-left-color: #3b82f6; color: #60a5fa; }
+        .sidebar-link:hover:not(.active) { background: rgba(255, 255, 255, 0.05); color: #f8fafc; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-[#0f172a] text-slate-200 min-h-screen flex">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-[#1e293b] border-r border-slate-800 flex flex-col fixed h-full z-20">
+        <div class="p-6">
+            <a href="/" class="flex items-center space-x-3 group">
+                <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform">
+                    <i class="fas fa-chart-line text-white text-xl"></i>
+                </div>
+                <div>
+                    <span class="text-xl font-bold block text-white">opencode</span>
+                    <span class="text-[10px] uppercase tracking-widest text-blue-400 font-semibold">Trading Engine</span>
+                </div>
+            </a>
+        </div>
+
+        <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+            <p class="px-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Navigation</p>
+            <a href="{{ url_for('dashboard.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+                <i class="fas fa-th-large w-6"></i>
+                <span class="font-medium">Dashboard</span>
+            </a>
+            <a href="{{ url_for('backtest.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'backtest.index' %}active{% endif %}">
+                <i class="fas fa-vial w-6"></i>
+                <span class="font-medium">Backtest</span>
+            </a>
+            <a href="{{ url_for('database.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'database.index' %}active{% endif %}">
+                <i class="fas fa-database w-6"></i>
+                <span class="font-medium">Database</span>
+            </a>
+            <a href="{{ url_for('scanner.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'scanner.index' %}active{% endif %}">
+                <i class="fas fa-radar w-6"></i>
+                <span class="font-medium">Scanner</span>
+            </a>
+            <a href="{{ url_for('ops.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'ops.index' %}active{% endif %}">
+                <i class="fas fa-microchip w-6"></i>
+                <span class="font-medium">Operations</span>
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-slate-800">
+            {% if session.username %}
+            <div class="flex items-center space-x-3 p-3 bg-slate-800/50 rounded-xl mb-3">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white uppercase">
+                    {{ session.username[:2] }}
+                </div>
+                <div class="flex-1 overflow-hidden">
+                    <p class="text-sm font-semibold text-white truncate">{{ session.username }}</p>
+                    <p class="text-[10px] text-slate-400 uppercase">Trader</p>
+                </div>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="flex items-center px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                <i class="fas fa-sign-out-alt w-6"></i>
+                <span>Sign Out</span>
+            </a>
+            {% else %}
+            <a href="{{ url_for('auth.login') }}" class="flex items-center px-4 py-2 text-sm text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors">
+                <i class="fas fa-sign-in-alt w-6"></i>
+                <span>Login</span>
+            </a>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="flex-1 ml-64 flex flex-col min-h-screen">
+        <header class="h-16 bg-[#0f172a]/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-10 flex items-center justify-between px-8">
+            <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-widest">
+                {% block breadcrumb %}{% endblock %}
+            </h2>
+            <div class="flex items-center space-x-4">
+                <div id="live-indicator" class="flex items-center space-x-2 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                    <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span class="text-[10px] font-bold text-emerald-500 uppercase">System Live</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="p-8 flex-1">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="mb-6 p-4 rounded-xl glass border-l-4 {% if category == 'error' %}border-red-500 text-red-200{% else %}border-blue-500 text-blue-200{% endif %} flex items-center">
+                            <i class="fas {% if category == 'error' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %} mr-3"></i>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="p-8 border-t border-slate-800 text-center">
+            <p class="text-slate-500 text-xs">© 2026 opencode Trading Engine. All rights reserved.</p>
+        </footer>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

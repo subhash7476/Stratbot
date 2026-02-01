@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Operations - Trading Platform{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">System Operations</h1>
+        <button onclick="triggerKillSwitch()" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg flex items-center transition-colors">
+            <i class="fas fa-skull-crossbones mr-2"></i>EMERGENCY STOP
+        </button>
+    </div>
+
+    <!-- System Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Upstox Connectivity -->
+        <div class="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <h2 class="text-xl font-bold mb-4 flex items-center">
+                <i class="fas fa-plug mr-2 text-blue-400"></i>Broker Connectivity
+            </h2>
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span>API Keys</span>
+                    <span class="text-xs px-2 py-1 rounded {% if upstox.api_key_set %}bg-green-900 text-green-300{% else %}bg-red-900 text-red-300{% endif %}">
+                        {{ 'CONFIGURED' if upstox.api_key_set else 'MISSING' }}
+                    </span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span>Access Token</span>
+                    <span class="text-xs px-2 py-1 rounded {% if upstox.connected %}bg-green-900 text-green-300{% else %}bg-red-900 text-red-300{% endif %}">
+                        {{ 'ACTIVE' if upstox.connected else 'EXPIRED' }}
+                    </span>
+                </div>
+                {% if not upstox.connected %}
+                <a href="{{ url_for('ops.upstox_login') }}" class="block text-center bg-blue-600 hover:bg-blue-500 text-white py-2 rounded transition-colors mt-2">
+                    Refresh Token
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Market Ingestor Status -->
+        <div class="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <h2 class="text-xl font-bold mb-4 flex items-center">
+                <i class="fas fa-database mr-2 text-blue-400"></i>Market Ingestor
+            </h2>
+            <div id="ingestor-status" class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span>Daemon Process</span>
+                    <span id="daemon-badge" class="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">CHECKING...</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span>Last Aggregation</span>
+                    <span id="last-agg" class="text-xs text-gray-400">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Health Metrics -->
+        <div class="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <h2 class="text-xl font-bold mb-4 flex items-center">
+                <i class="fas fa-heartbeat mr-2 text-blue-400"></i>System Health
+            </h2>
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span>Uptime</span>
+                    <span id="uptime" class="text-sm text-gray-300">--</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span>Error Count</span>
+                    <span id="error-count" class="text-sm text-red-400">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Symbol Universe Ingestion -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+        <h2 class="text-xl font-bold mb-4 flex items-center">
+            <i class="fas fa-list mr-2 text-blue-400"></i>Tracked Market Universe
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left">
+                <thead>
+                    <tr class="border-b border-gray-700 text-gray-400 text-sm">
+                        <th class="pb-3 px-2">Instrument Key</th>
+                        <th class="pb-3">Last Tick</th>
+                        <th class="pb-3 text-right">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="universe-body" class="divide-y divide-gray-700">
+                    {% for sym in upstox.symbols %}
+                    <tr>
+                        <td class="py-3 px-2 font-mono text-sm">{{ sym }}</td>
+                        <td class="py-3 text-sm text-gray-400">Wait for data...</td>
+                        <td class="py-3 text-right">
+                            <span class="inline-block w-2 h-2 bg-gray-500 rounded-full"></span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function triggerKillSwitch() {
+        if (confirm("🚨 WARNING: This will immediately engage the emergency STOP switch. All live execution will be halted. Proceed?")) {
+            const response = await fetch('{{ url_for("ops.api_kill") }}', { method: 'POST' });
+            const result = await response.json();
+            alert(result.message || result.error);
+        }
+    }
+
+    async function updateStatus() {
+        try {
+            const response = await fetch('{{ url_for("ops.api_status") }}');
+            const data = await response.json();
+            
+            // Update Health
+            document.getElementById('uptime').textContent = (data.health.uptime / 60).toFixed(1) + ' min';
+            document.getElementById('error-count').textContent = data.health.error_count;
+            
+            // Update Ingestor
+            const badge = document.getElementById('daemon-badge');
+            badge.textContent = data.upstox_connected ? 'RUNNING' : 'STOPPED';
+            badge.className = `text-xs px-2 py-1 rounded ${data.upstox_connected ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`;
+            
+        } catch (error) {
+            console.error('Status fetch failed:', error);
+        }
+    }
+
+    setInterval(updateStatus, 3000);
+    updateStatus();
+</script>
+{% endblock %}

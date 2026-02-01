@@ -1,0 +1,11 @@
+{
+    "strategy_id": "confluence_consumer",
+    "symbol": "NSE_EQ|INE089A01031",
+    "start_date": "2025-12-31T23:59:07.864669",
+    "end_date": "2026-01-30T23:59:07.864669",
+    "execution_mode": "PAPER",
+    "analytics_source": "stored_snapshots",
+    "strategy_params": {
+        "min_confidence": 0.5
+    }
+}

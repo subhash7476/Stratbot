@@ -1,0 +1,2 @@
+timestamp,trade_id,direction,quantity,price,fees,status
+2026-01-01T09:20:00,trade_order_20260101092000000000_NSE_EQ|INE742F01042,BUY,80.0,1473.11,117.8488,FILLED

@@ -1,0 +1,19 @@
+{
+    "bars_processed": 6000,
+    "signals_generated": 0,
+    "trades_executed": 0,
+    "strategies_disabled": [],
+    "current_positions": {},
+    "execution_mode": "paper",
+    "end_time": "2026-01-23 15:29:00",
+    "total_pnl": 0.0,
+    "win_rate": 0.0,
+    "trade_count": 0,
+    "max_drawdown": 0.0,
+    "total_fees": 0.0,
+    "sharpe_ratio": 0.0,
+    "final_equity": 100000.0,
+    "last_trade_time": null,
+    "run_hash": "5029f05d2b82c692",
+    "completed_at": "2026-01-30T23:48:14.846476"
+}

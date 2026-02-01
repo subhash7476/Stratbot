@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest - opencode{% endblock %}
+
+{% block breadcrumb %}Strategy / Backtest{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white tracking-tight">Strategy Backtesting</h1>
+            <p class="text-slate-400 mt-1">Simulate strategies on historical data to validate performance.</p>
+        </div>
+        <button onclick="toggleNewBacktest()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center font-bold">
+            <i class="fas fa-plus mr-2"></i> New Backtest
+        </button>
+    </div>
+
+    <!-- New Backtest Form (Hidden by default) -->
+    <div id="new-backtest-panel" class="hidden glass rounded-2xl p-8 border-blue-500/30 bg-blue-500/5 animate-in fade-in slide-in-from-top-4 duration-300">
+        <h2 class="text-xl font-bold text-white mb-6">Configure Backtest</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Strategy</label>
+                <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <option>EHMA Pivot Crossover</option>
+                    <option>Daily Regime V2</option>
+                    <option>Confluence Engine</option>
+                </select>
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Symbol</label>
+                <input type="text" placeholder="e.g. RELIANCE" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Capital</label>
+                <input type="number" value="100000" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Start Date</label>
+                <input type="date" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">End Date</label>
+                <input type="date" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="flex items-end">
+                <button class="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20">
+                    Run Simulation
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Backtests -->
+    <div class="glass rounded-2xl overflow-hidden">
+        <div class="p-6 border-b border-slate-700 flex justify-between items-center">
+            <h3 class="font-bold text-white">Recent Simulations</h3>
+            <div class="flex space-x-2">
+                <span class="px-3 py-1 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold rounded-full border border-emerald-500/20">85% Success</span>
+                <span class="px-3 py-1 bg-blue-500/10 text-blue-500 text-[10px] font-bold rounded-full border border-blue-500/20">12 Total</span>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                    <tr>
+                        <th class="px-6 py-4">Strategy</th>
+                        <th class="px-6 py-4">Instrument</th>
+                        <th class="px-6 py-4">Returns</th>
+                        <th class="px-6 py-4">Drawdown</th>
+                        <th class="px-6 py-4">Win Rate</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800 text-slate-300">
+                    {% for run in range(3) %}
+                    <tr class="hover:bg-slate-700/30 transition-colors cursor-pointer group">
+                        <td class="px-6 py-4 font-medium text-white">EHMA Pivot V2</td>
+                        <td class="px-6 py-4">NSE:NIFTY50</td>
+                        <td class="px-6 py-4 text-emerald-400 font-bold">+18.4%</td>
+                        <td class="px-6 py-4 text-rose-400">4.2%</td>
+                        <td class="px-6 py-4">64%</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded bg-slate-800 text-[10px] text-slate-400 border border-slate-700">COMPLETED</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button class="text-blue-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <i class="fas fa-chart-bar mr-1"></i> Details
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="hover:bg-slate-700/30 transition-colors cursor-pointer group">
+                        <td class="px-6 py-4 font-medium text-white">Daily Regime V2</td>
+                        <td class="px-6 py-4">NSE:BANKNIFTY</td>
+                        <td class="px-6 py-4 text-emerald-400 font-bold">+12.1%</td>
+                        <td class="px-6 py-4 text-rose-400">6.8%</td>
+                        <td class="px-6 py-4">58%</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded bg-blue-500/10 text-[10px] text-blue-500 border border-blue-500/20 flex items-center w-fit">
+                                <i class="fas fa-spinner fa-spin mr-1"></i> RUNNING
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button class="text-slate-500 cursor-not-allowed">
+                                <i class="fas fa-chart-bar mr-1"></i> Details
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Analytics Dashboard Mock -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="glass p-6 rounded-2xl">
+            <h3 class="font-bold text-white mb-6">Equity Growth (Last Run)</h3>
+            <div id="backtest-equity-chart"></div>
+        </div>
+        <div class="glass p-6 rounded-2xl">
+            <h3 class="font-bold text-white mb-6">Trade Distribution</h3>
+            <div id="backtest-distribution-chart"></div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    function toggleNewBacktest() {
+        const panel = document.getElementById('new-backtest-panel');
+        panel.classList.toggle('hidden');
+    }
+
+    // Equity Chart
+    const equityOptions = {
+        series: [{ name: 'Growth', data: [0, 15, 12, 25, 22, 38, 35, 45] }],
+        chart: { type: 'line', height: 300, toolbar: { show: false }, background: 'transparent' },
+        stroke: { curve: 'stepline', width: 3 },
+        colors: ['#10b981'],
+        xaxis: { categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'], labels: { style: { colors: '#64748b' } } },
+        yaxis: { labels: { style: { colors: '#64748b' } } },
+        grid: { borderColor: '#334155' },
+        theme: { mode: 'dark' }
+    };
+    new ApexCharts(document.querySelector("#backtest-equity-chart"), equityOptions).render();
+
+    // Distribution Chart
+    const distOptions = {
+        series: [44, 55, 13, 33],
+        chart: { type: 'donut', height: 300, background: 'transparent' },
+        labels: ['Winning Long', 'Winning Short', 'Losing Long', 'Losing Short'],
+        colors: ['#10b981', '#34d399', '#f43f5e', '#fb7185'],
+        legend: { position: 'bottom', labels: { colors: '#94a3b8' } },
+        theme: { mode: 'dark' },
+        plotOptions: { pie: { donut: { size: '70%' } } }
+    };
+    new ApexCharts(document.querySelector("#backtest-distribution-chart"), distOptions).render();
+</script>
+{% endblock %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{
+    "strategy_id": "daily_regime_v2",
+    "symbol": "CDSL",
+    "start_date": "2026-01-15T13:51:02.260351",
+    "end_date": "2026-01-30T13:51:02.260361",
+    "execution_mode": "PAPER",
+    "analytics_source": "stored_snapshots",
+    "strategy_params": {
+        "min_confidence": 0.5
+    }
+}

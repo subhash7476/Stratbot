@@ -1,0 +1,23 @@
+[project]
+name = "trading-platform"
+version = "0.1.0"
+description = "Deterministic Algorithmic Trading Platform"
+authors = [
+    {name = "Opencode", email = "opencode@example.com"}
+]
+dependencies = [
+    "flask",
+    "flask-login",
+    "duckdb",
+    "pandas",
+    "numpy",
+    "requests",
+    "pytz",
+    "python-dotenv",
+    "websockets",
+    "protobuf"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

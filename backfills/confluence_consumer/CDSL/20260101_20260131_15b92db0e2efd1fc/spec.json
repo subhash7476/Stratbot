@@ -1,0 +1,11 @@
+{
+    "strategy_id": "confluence_consumer",
+    "symbol": "CDSL",
+    "start_date": "2026-01-01T15:22:39.842124",
+    "end_date": "2026-01-31T15:22:39.842124",
+    "execution_mode": "PAPER",
+    "analytics_source": "stored_snapshots",
+    "strategy_params": {
+        "min_confidence": 0.5
+    }
+}

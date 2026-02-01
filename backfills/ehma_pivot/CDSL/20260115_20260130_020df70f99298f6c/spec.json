@@ -1,0 +1,11 @@
+{
+    "strategy_id": "ehma_pivot",
+    "symbol": "CDSL",
+    "start_date": "2026-01-15T16:38:34.423520",
+    "end_date": "2026-01-30T16:38:34.423528",
+    "execution_mode": "PAPER",
+    "analytics_source": "stored_snapshots",
+    "strategy_params": {
+        "min_confidence": 0.5
+    }
+}

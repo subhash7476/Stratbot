@@ -1,0 +1,16 @@
+{
+    "bars_processed": 2250,
+    "signals_generated": 154,
+    "trades_executed": 1,
+    "strategies_disabled": [],
+    "current_positions": {
+        "NSE_EQ|INE736A01011": 80.0
+    },
+    "execution_mode": "paper",
+    "end_time": "2026-01-23 15:29:00",
+    "trade_count": 1,
+    "total_fees": 114.40879999999999,
+    "last_trade_time": "2026-01-16T09:29:00",
+    "run_hash": "020df70f99298f6c",
+    "completed_at": "2026-01-30T16:38:35.659090"
+}

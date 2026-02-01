@@ -1,0 +1,11 @@
+{
+    "strategy_id": "ultimate_trading_dashboard",
+    "symbol": "NSE_EQ|INE00H001014",
+    "start_date": "2026-01-01T15:28:18.038506",
+    "end_date": "2026-01-31T15:28:18.038506",
+    "execution_mode": "PAPER",
+    "analytics_source": "stored_snapshots",
+    "strategy_params": {
+        "min_confidence": 0.5
+    }
+}

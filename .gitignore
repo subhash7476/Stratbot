@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.env.*
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Logs / runtime
+logs/
+*.log
+*.pid
+
+# Data / DB
+data/
+*.db
+# Windows reserved / junk
+nul
