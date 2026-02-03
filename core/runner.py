@@ -170,17 +170,21 @@ class TradingRunner:
         if not bar:
             return False
         
+        # Sync clock to bar timestamp
+        if hasattr(self.clock, 'set_time'):
+            self.clock.set_time(bar.timestamp)
+        
         # 2. Fetch analytics snapshot (may be None)
-        analytics_snapshot = self.analytics.get_latest_snapshot(symbol)
+        analytics_snapshot = self.analytics.get_latest_snapshot(symbol, as_of=bar.timestamp)
         
         if analytics_snapshot is None and self.config.warn_on_missing_analytics:
-            print(f"[WARNING] Missing analytics snapshot for {symbol} at {self.clock.now()}")
+            print(f"[WARNING] Missing analytics snapshot for {symbol} at {bar.timestamp}")
         
         # 3. Get current position
         current_position = self.positions.get_position_quantity(symbol)
         
         # 4. Get market regime (may be None)
-        market_regime = self.analytics.get_market_regime(symbol)
+        market_regime = self.analytics.get_market_regime(symbol, as_of=bar.timestamp)
         
         # 5. Process through each strategy
         for strategy in self.strategies:

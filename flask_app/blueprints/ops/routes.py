@@ -135,6 +135,12 @@ def upstox_callback():
         
     return redirect(url_for('ops.index'))
 
+@bp.route('/api/websocket_status')
+def api_websocket_status():
+    """Read-only endpoint for current WebSocket status."""
+    from app_facade.ops_facade import OpsFacade
+    return jsonify(OpsFacade.get_websocket_status())
+
 @bp.route('/api/kill', methods=['POST'])
 def api_kill():
     """Triggers the manual kill switch via the STOP file."""

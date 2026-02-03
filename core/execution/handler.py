@@ -59,17 +59,25 @@ class ExecutionMetrics:
     start_time: float = field(default_factory=time.time)
     daily_pnl: float = 0.0
     max_equity: float = 100000.0
-    current_equity: float = 100000.0
+    cash_balance: float = 100000.0
+    max_drawdown_pct: float = 0.0
     
     def get_throughput(self) -> float:
         """Returns signals processed per second."""
         elapsed = time.time() - self.start_time
         return self.signals_received / elapsed if elapsed > 0 else 0.0
 
-    def get_drawdown(self) -> float:
-        """Calculates current drawdown percentage."""
+    def update_drawdown(self, total_equity: float) -> float:
+        """Updates and returns current drawdown percentage based on total equity."""
+        self.max_equity = max(self.max_equity, total_equity)
         if self.max_equity == 0: return 0.0
-        return (self.max_equity - self.current_equity) / self.max_equity
+        current_dd = (self.max_equity - total_equity) / self.max_equity
+        self.max_drawdown_pct = max(self.max_drawdown_pct, current_dd)
+        return current_dd
+
+    def get_drawdown(self, total_equity: float) -> float:
+        """Legacy alias for update_drawdown."""
+        return self.update_drawdown(total_equity)
 
 
 class ExecutionHandler:
@@ -82,7 +90,7 @@ class ExecutionHandler:
     - Determinism: Identical behavior in same execution mode.
     """
     
-    def __init__(self, clock: Clock, broker: BrokerAdapter, config: Optional[ExecutionConfig] = None, metrics_path: str = "logs/execution_metrics.json"):
+    def __init__(self, clock: Clock, broker: BrokerAdapter, config: Optional[ExecutionConfig] = None, metrics_path: str = "logs/execution_metrics.json", initial_capital: float = 100000.0):
         self.clock = clock
         self.broker = broker
         self.config = config or ExecutionConfig()
@@ -92,7 +100,10 @@ class ExecutionHandler:
         self.metrics_path = Path(metrics_path)
         
         # Phase 5: Observability & Safety
-        self.metrics = ExecutionMetrics()
+        self.metrics = ExecutionMetrics(
+            max_equity=initial_capital,
+            cash_balance=initial_capital
+        )
         self._kill_switched = False
         self._trades_today = 0
         self.logger = logging.getLogger(__name__)
@@ -102,18 +113,24 @@ class ExecutionHandler:
         self._last_alerted_loss_threshold = 0.0
         self._persist_metrics()
 
-    def _persist_metrics(self):
+    def _persist_metrics(self, current_price: Optional[float] = None, symbol: Optional[str] = None):
         """Writes current execution metrics to disk for Flask."""
         try:
             self.metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            total_equity = self.metrics.cash_balance
+            if current_price and symbol:
+                total_equity += self._position_tracker.get(symbol, 0.0) * current_price
+
             data = {
                 "signals_received": self.metrics.signals_received,
                 "trades_executed": self.metrics.trades_executed,
                 "rejected_trades": self.metrics.rejected_trades,
                 "throughput": self.metrics.get_throughput(),
-                "current_equity": self.metrics.current_equity,
+                "cash_balance": self.metrics.cash_balance,
+                "total_equity": total_equity,
                 "max_equity": self.metrics.max_equity,
-                "drawdown": self.metrics.get_drawdown(),
+                "drawdown": self.metrics.get_drawdown(total_equity),
                 "kill_switched": self._kill_switched,
                 "trades_today": self._trades_today,
                 "last_update": self.clock.now().isoformat()
@@ -155,10 +172,11 @@ class ExecutionHandler:
             return None
 
         # 4. Drawdown Kill Switch
+        total_equity = self.metrics.cash_balance + (self._position_tracker.get(signal.symbol, 0.0) * current_price)
         if not getattr(self, '_kill_switch_disabled', False):
-            dd = self.metrics.get_drawdown()
+            dd = self.metrics.get_drawdown(total_equity)
             if dd >= self.config.max_drawdown_limit:
-                self.activate_kill_switch(f"Max drawdown ({dd*100:.1f}%) reached.")
+                self.activate_kill_switch(f"Max drawdown ({dd*100:.1f}%) reached. Equity: {total_equity:.2f}, Peak: {self.metrics.max_equity:.2f}")
                 return None
 
             # 5. Loss Threshold Alerts (80%)
@@ -180,19 +198,32 @@ class ExecutionHandler:
         if signal.signal_type == SignalType.BUY:
             direction = "BUY"
             quantity = self._calculate_position_size(signal, current_price)
+            # Insufficient funds check
+            if (quantity * current_price) > self.metrics.cash_balance:
+                # Resize to available cash
+                quantity = (self.metrics.cash_balance * 0.95) / current_price
+                if quantity < 1:
+                    self.metrics.rejected_trades += 1
+                    return self._create_rejected_trade(signal, "Insufficient funds")
         elif signal.signal_type == SignalType.SELL:
             direction = "SELL"
             quantity = self._calculate_position_size(signal, current_price)
         elif signal.signal_type == SignalType.EXIT:
             current_pos = self._position_tracker.get(signal.symbol, 0.0)
-            if current_pos > 0: 
+            if current_pos > 0:
                 direction = "SELL"
-            elif current_pos < 0: 
+            elif current_pos < 0:
                 direction = "BUY"
             else:
                 self.metrics.rejected_trades += 1
                 return self._create_rejected_trade(signal, "No position to exit")
-            quantity = abs(current_pos)
+
+            # Check if the signal specifies to close all positions
+            if signal.metadata.get('close_all', False):
+                quantity = abs(current_pos)
+            else:
+                # Default behavior: use calculated position size
+                quantity = abs(current_pos)
         else:
             return None 
 
@@ -248,7 +279,7 @@ class ExecutionHandler:
             self.metrics.trades_executed += 1
             self._trades_today += 1
         
-        self._persist_metrics()
+        self._persist_metrics(current_price, signal.symbol)
         return result
 
     def reconcile_positions(self):
@@ -339,9 +370,12 @@ class ExecutionHandler:
 
     def _update_equity_metrics(self, trade: TradeEvent):
         cost = trade.quantity * trade.price + trade.fees
-        if trade.direction == "BUY": self.metrics.current_equity -= cost
-        else: self.metrics.current_equity += (trade.quantity * trade.price - trade.fees)
-        self.metrics.max_equity = max(self.metrics.max_equity, self.metrics.current_equity)
+        if trade.direction == "BUY": self.metrics.cash_balance -= cost
+        else: self.metrics.cash_balance += (trade.quantity * trade.price - trade.fees)
+        
+        # Calculate current total equity for peak tracking
+        total_equity = self.metrics.cash_balance + (self._position_tracker.get(trade.symbol, 0.0) * trade.price)
+        self.metrics.max_equity = max(self.metrics.max_equity, total_equity)
     
     def get_position(self, symbol: str) -> float:
         return self._position_tracker.get(symbol, 0.0)

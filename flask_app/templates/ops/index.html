@@ -46,6 +46,14 @@
             </h2>
             <div id="ingestor-status" class="space-y-4">
                 <div class="flex justify-between items-center">
+                    <span>WebSocket</span>
+                    <span id="ws-badge" class="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">CHECKING...</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span>Last Update</span>
+                    <span id="ws-updated" class="text-xs text-gray-400">--</span>
+                </div>
+                <div class="flex justify-between items-center">
                     <span>Daemon Process</span>
                     <span id="daemon-badge" class="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">CHECKING...</span>
                 </div>
@@ -115,6 +123,25 @@
         }
     }
 
+    async function updateWebSocketStatus() {
+        try {
+            const res = await fetch('{{ url_for("ops.api_websocket_status") }}');
+            const data = await res.json();
+            const badge = document.getElementById('ws-badge');
+            const updated = document.getElementById('ws-updated');
+            const s = data.status;
+            const colorClass = s === 'OPEN'
+                ? 'bg-green-900 text-green-300'
+                : 'bg-red-900 text-red-300';
+            const icon = s === 'OPEN' ? '\u{1F7E2}' : '\u{1F534}';
+            badge.textContent = icon + ' ' + s;
+            badge.className = 'text-xs px-2 py-1 rounded ' + colorClass;
+            updated.textContent = data.updated_at || '--';
+        } catch (e) {
+            console.error('WS status fetch failed:', e);
+        }
+    }
+
     async function updateStatus() {
         try {
             const response = await fetch('{{ url_for("ops.api_status") }}');
@@ -135,6 +162,8 @@
     }
 
     setInterval(updateStatus, 3000);
+    setInterval(updateWebSocketStatus, 3000);
     updateStatus();
+    updateWebSocketStatus();
 </script>
 {% endblock %}

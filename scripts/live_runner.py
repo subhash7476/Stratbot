@@ -12,6 +12,7 @@ from datetime import datetime
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+from core.data.market_hours import MarketHours
 from core.clock import RealTimeClock
 from core.runner import TradingRunner, RunnerConfig
 from core.data.live_market_provider import LiveDuckDBMarketDataProvider
@@ -39,6 +40,12 @@ def main():
     # Setup Logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("LiveRunner")
+
+    # 0. Market Hours Gate
+    now = MarketHours.get_ist_now()
+    if not MarketHours.is_market_open(now):
+        logger.info("Market is closed. Exiting.")
+        sys.exit(0)
 
     # 1. Initialize Time
     clock = RealTimeClock()

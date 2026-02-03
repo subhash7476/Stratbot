@@ -9,5 +9,15 @@ class BaseIndicator(ABC):
         self.name = name
 
     @abstractmethod
-    def calculate(self, df: pd.DataFrame) -> pd.Series:
+    def calculate(self, df: pd.DataFrame, **kwargs):
+        """
+        Calculate the indicator value(s).
+
+        Args:
+            df: Input DataFrame with required columns
+            **kwargs: Additional parameters for the calculation
+
+        Returns:
+            Result of the indicator calculation (can be Series, DataFrame, or other types)
+        """
         pass

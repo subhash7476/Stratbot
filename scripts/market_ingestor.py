@@ -56,6 +56,7 @@ class MarketIngestorDaemon:
     def _handle_exit(self, signum, frame):
         logger.info(f"Received signal {signum}. Shutting down...")
         self._is_running = False
+        self._update_websocket_status("CLOSED")
         if self.ingestor:
             self.ingestor.stop()
         if PID_FILE.exists():
@@ -89,6 +90,21 @@ class MarketIngestorDaemon:
         except Exception as e:
             logger.error(f"Failed to update heartbeat: {e}")
 
+    def _update_websocket_status(self, status: str):
+        """Persists WebSocket status to DuckDB for Flask to read."""
+        try:
+            with db_cursor() as conn:
+                conn.execute("""
+                    INSERT INTO websocket_status (key, status, updated_at, pid)
+                    VALUES ('singleton', ?, ?, ?)
+                    ON CONFLICT (key) DO UPDATE SET
+                        status = excluded.status,
+                        updated_at = excluded.updated_at,
+                        pid = excluded.pid
+                """, [status, datetime.now(), os.getpid()])
+        except Exception as e:
+            logger.error(f"Failed to update websocket_status: {e}")
+
     def run(self):
         self._acquire_lock()
         logger.info("Market Ingestor Daemon started.")
@@ -98,6 +114,7 @@ class MarketIngestorDaemon:
         if not token or credentials.needs_daily_refresh:
             logger.error("Fresh Upstox token required. Please login via Dashboard.")
             self._update_heartbeat("ERROR_TOKEN_EXPIRED")
+            self._update_websocket_status("DISCONNECTED")
             return
 
         upstox_client = UpstoxClient(access_token=token)
@@ -109,6 +126,7 @@ class MarketIngestorDaemon:
         # 2. Start Ingestor
         self.ingestor = WebSocketIngestor(self.symbols, access_token=token)
         self.ingestor.start()
+        self._update_websocket_status("OPEN")
         
         # 3. Main Loop
         logger.info("Entering main aggregation loop (1s frequency).")
@@ -119,15 +137,17 @@ class MarketIngestorDaemon:
                 # Market is open: Aggressive aggregation
                 self.aggregator.aggregate_outstanding_ticks(self.symbols)
                 self._update_heartbeat("CONNECTED")
+                self._update_websocket_status("OPEN")
                 time.sleep(1.5) # Poll every 1.5 seconds
             else:
                 # Market is closed: Idle mode
                 # Final aggregation to close out the session
                 self.aggregator.aggregate_outstanding_ticks(self.symbols)
-                
+
                 # Check when market opens next
                 logger.info("Market closed. Sleeping until next open.")
                 self._update_heartbeat("IDLE (Market Closed)")
+                self._update_websocket_status("CLOSED")
                 time.sleep(60) # Wake up every minute to check gating
 
 if __name__ == "__main__":
