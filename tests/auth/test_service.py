@@ -1,6 +1,5 @@
 from core.auth.auth_service import AuthService
-from core.data.duckdb_client import db_cursor
-from core.data.schema import BOOTSTRAP_STATEMENTS
+from core.database import db_cursor, BOOTSTRAP_STATEMENTS
 import pytest
 
 def test_auth_logic(temp_db):

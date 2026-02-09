@@ -22,3 +22,9 @@ data/
 *.db
 # Windows reserved / junk
 nul
+# Secrets
+config/credentials.py
+# AI / tooling
+.claude/
+*.png
+config/credentials.json

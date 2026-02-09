@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 from typing import List, Any
-from core.data.duckdb_client import db_cursor
+from core.database import db_cursor
 
 logger = logging.getLogger(__name__)
 

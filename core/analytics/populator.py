@@ -1,34 +1,38 @@
 """
-Analytics Populator
------------------
-Batch process to compute and store insights.
+Refactored Analytics Populator
+----------------------------
+Batch process to compute and store insights using DatabaseManager.
 """
 import pandas as pd
 import logging
-from typing import List, Optional
-from datetime import datetime
+from typing import List, Optional, Any
+from datetime import datetime, timedelta
+from pathlib import Path
 
-from core.data.duckdb_client import db_cursor
-from core.data.analytics_persistence import save_insight, save_regime_snapshot
+from core.database.manager import DatabaseManager
+from core.database.queries import MarketDataQuery
+from core.database.legacy_adapter import save_insights, save_regime_snapshot
 from core.analytics.confluence_engine import ConfluenceEngine
 from core.analytics.models import ConfluenceInsight
-from core.analytics.regime_engine import RegimeSnapshot
+from core.analytics.regime_engine import RegimeSnapshot, RegimeDetector
 
 logger = logging.getLogger(__name__)
 
 class AnalyticsPopulator:
     """
     Coordinates the calculation and storage of analytics for all symbols.
+    Uses MarketDataQuery to bridge historical and live data.
     """
     
-    def __init__(self, db_path: str = "data/trading_bot.duckdb"):
-        self.db_path = db_path
+    def __init__(self, db_manager: Optional[DatabaseManager] = None):
+        self.db = db_manager or DatabaseManager(Path("data"))
+        self.query = MarketDataQuery(self.db)
         self.confluence_engine = ConfluenceEngine()
+        self.regime_detector = RegimeDetector()
 
     def update_all(self, symbols: List[str], backfill: bool = True, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, timeframe: str = '1m'):
         """
         Calculates latest insights for a list of symbols.
-        If backfill is True, it attempts to generate insights for historical bars.
         """
         for symbol in symbols:
             if backfill:
@@ -38,37 +42,27 @@ class AnalyticsPopulator:
 
     def _update_symbol(self, symbol: str):
         try:
-            # 1. Load data from DuckDB
-            with db_cursor(self.db_path, read_only=True) as conn:
-                df = conn.execute(
-                    "SELECT timestamp, open, high, low, close, volume FROM ohlcv_1m WHERE instrument_key = ? ORDER BY timestamp ASC",
-                    [symbol]
-                ).fetchdf()
+            # Load recent data
+            now = datetime.now()
+            start = now - timedelta(days=2)
+            df = self.query.get_candles(symbol, 'nse', '1m', start, now)
             
             if df.empty:
                 logger.warning(f"No data found for {symbol}")
                 return
 
-            # 2. Generate Confluence Insight
+            # Generate Confluence Insight
             insight = self.confluence_engine.generate_insight(symbol, df)
             if insight:
-                save_insight(insight, self.db_path)
+                from core.database.legacy_adapter import save_insight
+                save_insight(insight)
                 logger.info(f"Saved confluence insight for {symbol}")
 
-            # 3. Generate Regime Snapshot
-            # (Simplified regime detection)
-            snapshot = RegimeSnapshot(
-                insight_id=f"regime_{symbol}_{datetime.now().strftime('%Y%m%d%H%M')}",
-                symbol=symbol,
-                timestamp=datetime.now(),
-                regime="BULL_TREND", # placeholder
-                momentum_bias="BULLISH",
-                trend_strength=0.8,
-                volatility_level="LOW",
-                persistence_score=0.9,
-                ma_fast=0.0, ma_medium=0.0, ma_slow=0.0
-            )
-            save_regime_snapshot(snapshot, self.db_path)
+            # Generate Regime Snapshot
+            snapshot = self.regime_detector.detect(symbol, df)
+            if snapshot:
+                save_regime_snapshot(snapshot)
+                logger.info(f"Saved regime snapshot for {symbol}: {snapshot.regime}")
             
         except Exception as e:
             logger.error(f"Failed to update analytics for {symbol}: {e}")
@@ -79,76 +73,41 @@ class AnalyticsPopulator:
         """
         try:
             logger.info(f"Starting analytics backfill for {symbol}...")
-            # 1. Load data from DuckDB with range filtering
-            # We need window_size bars BEFORE start_date to calculate the first indicator
-            # Select table and filter based on timeframe
-            tf_map = {'1m': (None, 'ohlcv_1m'), '5m': ('5minute', 'ohlcv_resampled'),
-                      '15m': ('15minute', 'ohlcv_resampled'), '1h': ('60minute', 'ohlcv_resampled'),
-                      '1d': ('1day', 'ohlcv_resampled')}
-            tf_key, tf_table = tf_map.get(timeframe, (None, 'ohlcv_1m'))
+            
+            # Load data using MarketDataQuery
+            # We need window_size bars BEFORE start_date
+            lookback_days = {'1m': 2, '5m': 5, '15m': 10, '1h': 30, '1d': 200}
+            fetch_start = (start_date or (datetime.now() - timedelta(days=lookback_days.get(timeframe, 2)))) - timedelta(days=lookback_days.get(timeframe, 2))
+            fetch_end = end_date or datetime.now()
 
-            query = f"SELECT timestamp, open, high, low, close, volume FROM {tf_table} WHERE instrument_key = ?"
-            from typing import Any
-            params: List[Any] = [symbol]
+            logger.info(f"Backfill query: symbol={symbol}, exchange=nse, tf={timeframe}, start={fetch_start}, end={fetch_end}, data_root={self.db.data_root}")
+            df = self.query.get_candles(symbol, 'nse', timeframe, fetch_start, fetch_end)
 
-            if tf_key:
-                query += " AND timeframe = ?"
-                params.append(tf_key)
-            
-            if start_date:
-                # Scale lookback based on timeframe to ensure window_size bars are available
-                from datetime import timedelta
-                lookback_days = {'1m': 2, '5m': 5, '15m': 10, '1h': 30, '1d': 200}
-                lookback_start = start_date - timedelta(days=lookback_days.get(timeframe, 2))
-                query += " AND timestamp >= ?"
-                params.append(lookback_start)
-            
-            if end_date:
-                query += " AND timestamp <= ?"
-                params.append(end_date)
-                
-            query += " ORDER BY timestamp ASC"
-            
-            with db_cursor(self.db_path, read_only=True) as conn:
-                df = conn.execute(query, params).fetchdf()
-            
             if len(df) < window_size:
-                logger.warning(f"Insufficient data for backfill: {symbol} ({len(df)} bars)")
+                logger.warning(f"Insufficient data for backfill: {symbol} ({len(df)} bars, need {window_size})")
                 return
 
-            # Determine where to start processing
-            # If start_date is provided, find the first index >= start_date
-            start_idx = int(window_size)
+            # Determine start index
+            start_idx = window_size
             if start_date:
-                # Find index of first bar >= start_date
-                # Convert start_date to pandas timestamp for comparison
-                ts_start = pd.Timestamp(start_date).tz_localize(None) if start_date.tzinfo is None else pd.Timestamp(start_date)
-                future_bars = df[df['timestamp'] >= ts_start]
+                # Localize start_date if needed for comparison
+                ts_start = pd.Timestamp(start_date).tz_localize(None)
+                # Ensure df['timestamp'] is also naive for comparison
+                df_ts = df['timestamp'].dt.tz_localize(None) if df['timestamp'].dt.tz else df['timestamp']
+                
+                future_bars = df[df_ts >= ts_start]
                 if not future_bars.empty:
-                    # We start at the index of the first bar in range, 
-                    # ensuring we have window_size bars before it.
-                    actual_start_idx = int(future_bars.index.values[0])
-                    start_idx = max(int(window_size), actual_start_idx)
+                    actual_start_idx = df.index.get_loc(future_bars.index[0])
+                    start_idx = max(window_size, actual_start_idx)
 
-            insights_to_save = []
-            total_to_process = int(len(df)) - start_idx
-            processed_count = 0
-            
-            if total_to_process <= 0:
-                logger.info(f"No new bars to process for {symbol} in the requested range.")
-                return
-
-            logger.info(f"Processing {total_to_process} bars for {symbol} starting from index {start_idx}")
-            
             # Use vectorized bulk generation
+            # Note: iloc is 0-based, so we take from start_idx - window_size to the end
             insights = self.confluence_engine.generate_insights_bulk(symbol, df.iloc[start_idx-window_size:])
             
             if insights:
-                from core.data.analytics_persistence import save_insights
-                save_insights(insights, self.db_path)
-                processed_count = len(insights)
+                save_insights(insights)
                 
-            logger.info(f"Backfill complete for {symbol}. Processed {processed_count} bars.")
+            logger.info(f"Backfill complete for {symbol}. Processed {len(insights)} bars.")
             
         except Exception as e:
             logger.error(f"Backfill failed for {symbol}: {e}")

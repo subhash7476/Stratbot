@@ -6,6 +6,7 @@ from flask import render_template, jsonify, request, redirect, url_for, flash
 from urllib.parse import urlencode
 from . import bp
 from core.auth.credentials import credentials
+from core.logging.log_reader import tail_log_file, count_errors, get_available_log_files
 
 METRICS_PATH = Path("logs/execution_metrics.json")
 HEALTH_PATH = Path("logs/health_status.json")
@@ -45,12 +46,14 @@ def api_status():
     from core.execution.health_monitor import HealthMonitor
     from core.clock import RealTimeClock
     from core.brokers.paper_broker import PaperBroker
+    from flask import current_app
     
+    db_manager = getattr(current_app, 'db_manager', None)
     clock = RealTimeClock()
     broker = PaperBroker(clock)
-    execution = ExecutionHandler(clock, broker)
+    execution = ExecutionHandler(db_manager=db_manager, clock=clock, broker=broker)
     health = HealthMonitor()
-    facade = OpsFacade(execution, health)
+    facade = OpsFacade(execution, health, db_manager=db_manager)
     
     return jsonify({
         "success": True,
@@ -59,6 +62,7 @@ def api_status():
         "matrix": facade.get_confluence_matrix(),
         "upstox_connected": credentials.has_upstox_token
     })
+
 
 @bp.route('/api/config/upstox', methods=['POST'])
 def save_config():
@@ -139,7 +143,20 @@ def upstox_callback():
 def api_websocket_status():
     """Read-only endpoint for current WebSocket status."""
     from app_facade.ops_facade import OpsFacade
-    return jsonify(OpsFacade.get_websocket_status())
+    from flask import current_app
+    from core.execution.handler import ExecutionHandler
+    from core.execution.health_monitor import HealthMonitor
+    from core.clock import RealTimeClock
+    from core.brokers.paper_broker import PaperBroker
+    
+    db_manager = getattr(current_app, 'db_manager', None)
+    clock = RealTimeClock()
+    broker = PaperBroker(clock)
+    execution = ExecutionHandler(db_manager=db_manager, clock=clock, broker=broker)
+    health = HealthMonitor()
+    facade = OpsFacade(execution, health, db_manager=db_manager)
+    return jsonify(facade.get_websocket_status())
+
 
 @bp.route('/api/kill', methods=['POST'])
 def api_kill():
@@ -148,5 +165,69 @@ def api_kill():
         with open("STOP", "w", encoding="utf-8") as f:
             f.write("Manual STOP triggered via Web UI")
         return jsonify({"success": True, "message": "Kill switch engaged. System stopping."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@bp.route('/api/logs')
+def api_logs():
+    """Return log entries from specified log file with optional filtering."""
+    file_name = request.args.get('file', '')
+    level_filter = request.args.get('level', '').upper() or None
+    source_filter = request.args.get('source', '') or None
+    lines = int(request.args.get('lines', 300))
+    
+    if not file_name:
+        return jsonify({"success": False, "error": "Log file name is required"}), 400
+    
+    # Validate file name to prevent directory traversal
+    if '..' in file_name or file_name.startswith('/') or '../' in file_name:
+        return jsonify({"success": False, "error": "Invalid file name"}), 400
+    
+    log_file_path = Path("logs") / file_name
+    
+    try:
+        log_entries = tail_log_file(
+            str(log_file_path),
+            lines=lines,
+            level_filter=level_filter,
+            source_filter=source_filter
+        )
+        return jsonify({"success": True, "entries": log_entries})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@bp.route('/api/error-count')
+def api_error_count():
+    """Return count of ERROR entries in log files within time window."""
+    file_name = request.args.get('file')
+    window_minutes = int(request.args.get('window_minutes', 60))
+    
+    try:
+        if file_name:
+            # Validate file name to prevent directory traversal
+            if '..' in file_name or file_name.startswith('/') or '../' in file_name:
+                return jsonify({"success": False, "error": "Invalid file name"}), 400
+            
+            log_file_path = Path("logs") / file_name
+            error_count = count_errors(str(log_file_path), window_minutes=window_minutes)
+        else:
+            # Sum errors from ALL log files
+            error_count = 0
+            for log_file in get_available_log_files():
+                error_count += count_errors(str(Path("logs") / log_file), window_minutes=window_minutes)
+                
+        return jsonify({"success": True, "error_count": error_count})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@bp.route('/api/log-files')
+def api_log_files():
+    """Return list of available log files."""
+    try:
+        log_files = get_available_log_files()
+        return jsonify({"success": True, "log_files": log_files})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

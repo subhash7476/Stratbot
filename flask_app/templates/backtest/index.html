@@ -32,9 +32,13 @@
             </div>
             <div class="space-y-2">
                 <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Symbol</label>
-                <select id="symbol-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                    <option value="">Loading symbols...</option>
-                </select>
+                <div class="relative">
+                    <input type="text" id="symbol-input" list="symbol-list" placeholder="Search symbol (e.g. RELIANCE)..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <datalist id="symbol-list">
+                        <!-- Options will be populated dynamically -->
+                    </datalist>
+                </div>
+                <p class="text-[10px] text-slate-500 italic">Supports FO Stocks, Indices, and MCX</p>
             </div>
             <div class="space-y-2">
                 <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Capital</label>
@@ -215,27 +219,33 @@
         }
     }
 
+    // Global caches
+    let symbolMap = {};
+
     // Load symbols dynamically
     async function loadSymbols() {
         try {
             const response = await fetch('/backtest/api/symbols');
             const data = await response.json();
 
-            const selectElement = document.getElementById('symbol-select');
-            selectElement.innerHTML = '<option value="">Select a symbol</option>';
+            const datalist = document.getElementById('symbol-list');
+            if (datalist) {
+                datalist.innerHTML = '';
+                symbolMap = {};
 
-            if (data.success && data.symbols) {
-                data.symbols.forEach(symbol => {
-                    const option = document.createElement('option');
-                    option.value = symbol.trading_symbol;
-                    option.textContent = `${symbol.trading_symbol} - ${symbol.name}`;
-                    selectElement.appendChild(option);
-                });
+                if (data.success && data.symbols) {
+                    data.symbols.forEach(symbol => {
+                        const option = document.createElement('option');
+                        option.value = symbol.label;
+                        datalist.appendChild(option);
+                        symbolMap[symbol.label] = symbol.value; // Map label to instrument_key
+                    });
+                }
             }
         } catch (error) {
             console.error('Error loading symbols:', error);
-            const selectElement = document.getElementById('symbol-select');
-            selectElement.innerHTML = '<option value="">Error loading symbols</option>';
+            const input = document.getElementById('symbol-input');
+            if (input) input.placeholder = "Error loading symbols";
         }
     }
 
@@ -300,7 +310,7 @@
     // Function to run backtest
     async function runBacktest() {
         const strategySelect = document.getElementById('strategy-select');
-        const symbolSelect = document.getElementById('symbol-select');
+        const symbolInput = document.getElementById('symbol-input');
         const capitalInput = document.getElementById('capital-input');
         const startDateInput = document.getElementById('start-date-input');
         const endDateInput = document.getElementById('end-date-input');
@@ -310,7 +320,9 @@
         const timeframeSelect = document.getElementById('timeframe-select');
 
         const strategyId = strategySelect.value;
-        const symbol = symbolSelect.value;
+        const symbolLabel = symbolInput.value;
+        const instrumentKey = symbolMap[symbolLabel];
+        
         const capital = parseFloat(capitalInput.value);
         const startDate = startDateInput.value;
         const endDate = endDateInput.value;
@@ -319,8 +331,8 @@
         const slPct = parseFloat(slInput.value) / 100;
         const maxHold = parseInt(maxHoldInput.value);
 
-        if (!strategyId || !symbol || !capital || !startDate || !endDate) {
-            alert('Please fill all required fields');
+        if (!strategyId || !instrumentKey || !capital || !startDate || !endDate) {
+            alert('Please fill all required fields and select a valid symbol from the list');
             return;
         }
 
@@ -337,7 +349,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    strategy_id: strategyId, symbol: symbol, capital: capital,
+                    strategy_id: strategyId, symbol: instrumentKey, capital: capital,
                     start_date: startDate, end_date: endDate,
                     tp_pct: tpPct, sl_pct: slPct, max_hold_bars: maxHold,
                     timeframe: timeframeSelect.value
@@ -349,8 +361,8 @@
                 updateBacktestStatus('STARTED', 'Backtest submitted', '0s', 'Backtest job queued');
                 pollBacktestStatus(result.run_id);
             } else {
-                updateBacktestStatus('FAILED', 'Error occurred', '0s', `Error: ${result.message}`);
-                alert(`Error: ${result.message}`);
+                updateBacktestStatus('FAILED', 'Error occurred', '0s', `Error: ${result.error || result.message}`);
+                alert(`Error: ${result.error || result.message}`);
             }
         } catch (error) {
             console.error('Error:', error);

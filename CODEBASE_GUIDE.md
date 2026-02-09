@@ -17,6 +17,7 @@ The codebase is organized into several key directories, each with a specific res
     - `alerts/`: Notification systems (e.g., Telegram).
     - `brokers/`: Adapters for different brokerage APIs (e.g., Upstox, Paper trading).
     - `api/`: Lower-level API clients.
+    - `zmq/`: ZeroMQ publisher/subscriber components for real-time event distribution and telemetry.
 - `scripts/`: Entry points for running the application, backtesting, database initialization, and maintenance tasks.
 - `config/`: Configuration settings and environment-specific variables.
 - `ops/`: Operational logging and system health monitoring.
@@ -60,6 +61,14 @@ The `TradingRunner` is the system orchestrator. It coordinates the data flow by:
 3. Handing resulting signals to the execution handler.
 4. Updating position tracking.
 
+### ZMQ Event Distribution (`core/zmq/`)
+The ZeroMQ layer provides real-time, low-latency event distribution across system components.
+- **Patterns**: Uses PUB/SUB for market data distribution and telemetry streaming.
+- **Components**: `ZmqPublisher` for publishing events, `ZmqSubscriber` for consuming events.
+- **Telemetry**: `TelemetryPublisher` provides unified publishing interface for metrics, positions, health, and logs.
+- **Decoupling**: Enables process isolation with dual-rail model (fast ZMQ path + fallback DuckDB polling).
+- **Flask Bridge**: Provides SSE endpoint to expose real-time telemetry to the browser without polling.
+
 ## 3. Module Interactions
 
 The system is designed with clear separation of concerns:
@@ -88,6 +97,10 @@ The system is designed with clear separation of concerns:
 - `events.py`: Defines core data structures like `OHLCVBar`, `SignalEvent`, and `TradeEvent`.
 - `runner.py`: The main system orchestrator.
 - `database.py`: Legacy compatibility wrapper for DuckDB connections.
+- `zmq/`: ZeroMQ components for real-time event distribution.
+    - `zmq_publisher.py`: Publisher wrapper for ZMQ PUB sockets.
+    - `zmq_subscriber.py`: Subscriber wrapper for ZMQ SUB sockets with topic filtering.
+    - `telemetry_publisher.py`: Unified interface for publishing system telemetry.
 
 ### `core/analytics/`
 - `indicators/`: Implementation of various technical indicators (VWAP, RSI, EMA, MACD, etc.).

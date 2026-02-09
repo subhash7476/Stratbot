@@ -19,53 +19,39 @@ import sys
 sys.path.insert(0, str(ROOT))
 
 from core.analytics.indicators.vwap import VWAP
-from core.data.duckdb_client import db_cursor
-from core.data.market_session import MarketSession
+from core.database.manager import DatabaseManager
+from core.database.queries import MarketDataQuery
+from core.database.utils import MarketSession
 
 
-def load_one_day_of_data(symbol: str, date_str: str, db_path: str = "data/trading_bot.duckdb"):
+def load_one_day_of_data(symbol: str, date_str: str):
     """
     Load 1 day of 1-minute bars for a symbol.
-    
-    Args:
-        symbol: The symbol to load data for
-        date_str: Date in 'YYYY-MM-DD' format
-        db_path: Path to the database
-        
-    Returns:
-        DataFrame with OHLCV data for the specified day
     """
     ist_tz = pytz.timezone('Asia/Kolkata')
-    
-    # Parse the date and create start/end times for the trading day
     target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
     
     # Start at market open (9:15 AM IST) and end at market close (3:30 PM IST)
     start_time = ist_tz.localize(datetime.combine(target_date, datetime.min.time().replace(hour=9, minute=15)))
     end_time = ist_tz.localize(datetime.combine(target_date, datetime.min.time().replace(hour=15, minute=30)))
     
-    with db_cursor(db_path) as conn:
-        query = """
-        SELECT instrument_key, timestamp, open, high, low, close, volume
-        FROM ohlcv_1m
-        WHERE instrument_key = ? 
-        AND timestamp >= ? 
-        AND timestamp <= ?
-        ORDER BY timestamp ASC
-        """
-        
-        df = conn.execute(query, [symbol, start_time, end_time]).fetchdf()
-        
-        # Ensure timestamp is timezone-aware in IST
-        if df['timestamp'].dt.tz is None:
-            df['timestamp'] = df['timestamp'].dt.tz_localize(ist_tz)
-        else:
-            df['timestamp'] = df['timestamp'].dt.tz_convert(ist_tz)
-        
+    db = DatabaseManager()
+    query = MarketDataQuery(db)
+    
+    df = query.get_ohlcv(symbol, start_time, end_time, timeframe='1m')
+    
+    if df.empty:
         return df
 
+    # Ensure columns match expected legacy names
+    if 'symbol' in df.columns:
+        df = df.rename(columns={'symbol': 'instrument_key'})
+    
+    return df
 
-def validate_vwap_implementation(symbol: str, date_str: str, db_path: str = "data/trading_bot.duckdb"):
+
+def validate_vwap_implementation(symbol: str, date_str: str):
+
     """
     Validate the VWAP implementation by computing Session VWAP for a day of data.
     

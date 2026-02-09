@@ -8,303 +8,403 @@
 <div class="space-y-8">
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-3xl font-bold text-white tracking-tight">Database Explorer</h1>
-            <p class="text-slate-400 mt-1">Manage and inspect your DuckDB data layers.</p>
+            <h1 class="text-3xl font-bold text-white tracking-tight">Database Management</h1>
+            <p class="text-slate-400 mt-1">Inspect schema, fetch market data, and browse records.</p>
         </div>
         <div class="flex space-x-3">
             <button onclick="loadTables()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl border border-slate-700 transition-colors flex items-center">
                 <i class="fas fa-sync-alt mr-2"></i> Refresh
             </button>
-            <button class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center">
-                <i class="fas fa-terminal mr-2"></i> SQL Console
-            </button>
         </div>
     </div>
 
-    <!-- Upstox Data Fetcher Card -->
-    <div class="glass rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center space-x-4">
-                <div class="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-500">
-                    <i class="fas fa-chart-line text-xl"></i>
+    <!-- Tab Navigation -->
+    <div class="flex border-b border-slate-800 space-x-8">
+        <button onclick="switchTab('explorer')" id="tab-explorer-btn" class="pb-4 text-sm font-semibold border-b-2 border-blue-500 text-white transition-all">
+            <i class="fas fa-search-nodes mr-2"></i>Schema Explorer
+        </button>
+        <button onclick="switchTab('fetcher')" id="tab-fetcher-btn" class="pb-4 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-300 transition-all">
+            <i class="fas fa-cloud-download-alt mr-2"></i>Data Fetcher
+        </button>
+        <button onclick="switchTab('viewer')" id="tab-viewer-btn" class="pb-4 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-300 transition-all">
+            <i class="fas fa-table mr-2"></i>Data Viewer
+        </button>
+        <button onclick="switchTab('historical')" id="tab-historical-btn" class="pb-4 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-300 transition-all">
+            <i class="fas fa-history mr-2"></i>Historical Data
+        </button>
+    </div>
+
+    <!-- Tab Contents -->
+    <div id="tab-explorer" class="tab-content space-y-8">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Sidebar: Tables List -->
+            <div class="glass rounded-2xl overflow-hidden flex flex-col h-[600px]">
+                <div class="p-4 border-b border-slate-700 bg-slate-800/30">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center">
+                        <i class="fas fa-table mr-2"></i> Tables
+                    </h3>
                 </div>
-                <div>
-                    <h2 class="text-xl font-bold text-white">Upstox Data Fetcher</h2>
-                    <p class="text-xs text-slate-400 uppercase tracking-tighter">Fetch historical market data</p>
+                <div id="table-list" class="flex-1 overflow-y-auto p-2 space-y-1">
+                    <div class="p-4 text-center text-slate-500 animate-pulse">Loading schema...</div>
                 </div>
             </div>
-        </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-            <!-- Instrument Key Input -->
-            <div class="lg:col-span-2">
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Instrument</label>
-                <div class="relative">
-                    <input
-                        type="text"
-                        id="instrumentInput"
-                        placeholder="Search instrument..."
-                        class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        autocomplete="off"
-                    >
-                    <div id="instrumentSuggestions" class="absolute z-10 w-full bg-slate-800 border border-slate-700 rounded-lg mt-1 hidden">
-                        <!-- Suggestions will appear here -->
+            <!-- Main Content: Table Preview -->
+            <div class="lg:col-span-3 space-y-6">
+                <div class="glass rounded-2xl p-6 min-h-[400px] flex flex-col">
+                    <div class="flex items-center justify-between mb-6">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
+                                <i class="fas fa-database text-xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-xl font-bold text-white" id="selected-table-name">Select a table</h2>
+                                <p class="text-xs text-slate-400 uppercase tracking-tighter" id="table-stats">0 Rows • 0 KB</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 border border-slate-700/50 rounded-xl overflow-hidden bg-slate-900/50">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                                <tr>
+                                    <th class="px-6 py-3">Column Name</th>
+                                    <th class="px-6 py-3">Data Type</th>
+                                    <th class="px-6 py-3">Nullable</th>
+                                    <th class="px-6 py-3">Default</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-preview-body" class="divide-y divide-slate-800 text-slate-300">
+                                <tr>
+                                    <td colspan="4" class="px-6 py-20 text-center text-slate-500 italic">
+                                        Click a table on the left to view its schema.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-            </div>
 
-            <!-- Unit Selector -->
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Unit</label>
-                <select id="unitSelector" class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                    <option value="minutes">Minutes</option>
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                    <option value="weeks">Weeks</option>
-                    <option value="months">Months</option>
-                </select>
-            </div>
-
-            <!-- Interval Input -->
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Interval</label>
-                <input
-                    type="number"
-                    id="intervalInput"
-                    placeholder="1"
-                    min="1"
-                    max="300"
-                    value="1"
-                    class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-            </div>
-
-            <!-- From Date -->
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">From Date</label>
-                <input
-                    type="date"
-                    id="fromDateInput"
-                    class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <!-- To Date -->
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">To Date</label>
-                <input
-                    type="date"
-                    id="toDateInput"
-                    class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="flex items-end space-x-3">
-                <button
-                    id="previewBtn"
-                    onclick="fetchAndPreview()"
-                    class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center"
-                    disabled
-                >
-                    <i class="fas fa-eye mr-2"></i> Preview
-                </button>
-                <button
-                    id="saveBtn"
-                    onclick="fetchAndSave()"
-                    class="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center"
-                    disabled
-                >
-                    <i class="fas fa-save mr-2"></i> Save to DB
-                </button>
-            </div>
-        </div>
-
-        <!-- Loading Indicator -->
-        <div id="loadingIndicator" class="hidden flex items-center justify-center py-8">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
-            <span class="ml-3 text-slate-400">Fetching data...</span>
-        </div>
-
-        <!-- Error Message -->
-        <div id="errorMessage" class="hidden bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-4">
-            <div class="flex items-center">
-                <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
-                <span id="errorText" class="text-red-300"></span>
-            </div>
-        </div>
-
-        <!-- Success Message -->
-        <div id="successMessage" class="hidden bg-green-500/20 border border-green-500/50 rounded-lg p-4 mb-4">
-            <div class="flex items-center">
-                <i class="fas fa-check-circle text-green-500 mr-2"></i>
-                <span id="successText" class="text-green-300"></span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Data Viewer Panel -->
-    <div class="glass rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center space-x-4">
-                <div class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-                    <i class="fas fa-table text-xl"></i>
-                </div>
-                <div>
-                    <h2 class="text-xl font-bold text-white">Historical Data Viewer</h2>
-                    <p class="text-xs text-slate-400 uppercase tracking-tighter" id="dataStats">Browse saved historical data</p>
-                </div>
-            </div>
-            <div class="flex items-center space-x-2">
-                <button id="exportCsvBtn" onclick="exportToCsv()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-sm flex items-center">
-                    <i class="fas fa-download mr-1"></i> Export CSV
-                </button>
-                <button id="toggleViewBtn" onclick="toggleTableView()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-sm">
-                    <i class="fas fa-chart-bar mr-1"></i> Chart View
-                </button>
-            </div>
-        </div>
-
-        <!-- Filters for Saved Data -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Instrument</label>
-                <select id="savedInstrumentFilter" class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <option value="">All Instruments</option>
-                    <!-- Options will be populated dynamically -->
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">From Date</label>
-                <input
-                    type="date"
-                    id="savedFromDateFilter"
-                    class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">To Date</label>
-                <input
-                    type="date"
-                    id="savedToDateFilter"
-                    class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-            </div>
-        </div>
-
-        <!-- Data Table -->
-        <div class="overflow-x-auto">
-            <table id="dataTable" class="w-full text-left text-sm">
-                <thead class="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                        <th class="px-4 py-3">Timestamp</th>
-                        <th class="px-4 py-3">Open</th>
-                        <th class="px-4 py-3">High</th>
-                        <th class="px-4 py-3">Low</th>
-                        <th class="px-4 py-3">Close</th>
-                        <th class="px-4 py-3">Volume</th>
-                    </tr>
-                </thead>
-                <tbody id="dataTableBody" class="divide-y divide-slate-800 text-slate-300">
-                    <tr>
-                        <td colspan="6" class="px-4 py-20 text-center text-slate-500 italic">
-                            Enter search criteria to view historical data
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Pagination -->
-        <div id="paginationControls" class="hidden mt-6 flex items-center justify-between">
-            <div id="paginationInfo" class="text-slate-400 text-sm"></div>
-            <div class="flex space-x-2">
-                <button id="prevPageBtn" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm" onclick="changePage(currentPage - 1)">
-                    Previous
-                </button>
-                <span id="pageInfo" class="text-slate-400 text-sm px-2">Page 1 of 1</span>
-                <button id="nextPageBtn" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm" onclick="changePage(currentPage + 1)">
-                    Next
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <!-- Sidebar: Tables List -->
-        <div class="glass rounded-2xl overflow-hidden flex flex-col h-[600px]">
-            <div class="p-4 border-b border-slate-700 bg-slate-800/30">
-                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center">
-                    <i class="fas fa-table mr-2"></i> Tables
-                </h3>
-            </div>
-            <div id="table-list" class="flex-1 overflow-y-auto p-2 space-y-1">
-                <!-- Tables populated here -->
-                <div class="p-4 text-center text-slate-500 animate-pulse">Loading schema...</div>
-            </div>
-        </div>
-
-        <!-- Main Content: Table Preview -->
-        <div class="lg:col-span-3 space-y-6">
-            <div class="glass rounded-2xl p-6 min-h-[400px] flex flex-col">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="flex items-center space-x-4">
-                        <div class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-                            <i class="fas fa-database text-xl"></i>
+                <!-- Database Info Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass p-5 rounded-2xl flex items-center space-x-4">
+                        <div class="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-500">
+                            <i class="fas fa-hdd"></i>
                         </div>
                         <div>
-                            <h2 class="text-xl font-bold text-white" id="selected-table-name">Select a table</h2>
-                            <p class="text-xs text-slate-400 uppercase tracking-tighter" id="table-stats">0 Rows • 0 KB</p>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase">Storage Mode</p>
+                            <p class="text-sm font-mono text-slate-300">Isolated (data/)</p>
                         </div>
                     </div>
-                    <div class="flex items-center bg-slate-800/50 rounded-lg p-1">
-                        <button class="px-3 py-1 text-xs font-medium text-white bg-slate-700 rounded-md">Structure</button>
-                        <button class="px-3 py-1 text-xs font-medium text-slate-400 hover:text-white rounded-md">Data Preview</button>
+                    <div class="glass p-5 rounded-2xl flex items-center space-x-4">
+                        <div class="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center text-amber-500">
+                            <i class="fas fa-microchip"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-500 uppercase">Architectures</p>
+                            <p class="text-sm text-slate-300">SQLite WAL + DuckDB</p>
+                        </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
 
-                <div class="flex-1 border border-slate-700/50 rounded-xl overflow-hidden bg-slate-900/50">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
-                            <tr>
-                                <th class="px-6 py-3">Column Name</th>
-                                <th class="px-6 py-3">Data Type</th>
-                                <th class="px-6 py-3">Nullable</th>
-                                <th class="px-6 py-3">Default</th>
-                            </tr>
-                        </thead>
-                        <tbody id="table-preview-body" class="divide-y divide-slate-800 text-slate-300">
-                            <tr>
-                                <td colspan="4" class="px-6 py-20 text-center text-slate-500 italic">
-                                    Click a table on the left to view its schema and data.
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+    <div id="tab-fetcher" class="tab-content hidden space-y-6">
+        <!-- Fetcher Navigation Bar -->
+        <div class="flex items-center space-x-1 border-b border-slate-800 pb-4">
+            <button onclick="switchFetcherSubTab('watchlist')" id="fetcher-watchlist-btn" class="px-4 py-2 text-sm font-medium border-b-2 border-purple-500 text-white transition-colors">
+                <i class="fas fa-list-ul mr-2"></i> Watchlist
+            </button>
+            <button onclick="switchFetcherSubTab('scheduler')" id="fetcher-scheduler-btn" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-300 transition-colors">
+                <i class="fas fa-calendar-alt mr-2"></i> Scheduler
+            </button>
+            <button onclick="switchFetcherSubTab('jobs')" id="fetcher-jobs-btn" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-300 transition-colors">
+                <i class="fas fa-tasks mr-2"></i> Download Jobs
+            </button>
+            <button onclick="switchFetcherSubTab('export')" id="fetcher-export-btn" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-300 transition-colors">
+                <i class="fas fa-file-export mr-2"></i> Export/Import
+            </button>
+        </div>
+
+        <!-- Watchlist Content (Primary View) -->
+        <div id="fetcher-subtab-watchlist" class="fetcher-subtab space-y-6">
+            <!-- Search & Add Bar -->
+            <div class="glass rounded-xl p-4 flex flex-col md:flex-row items-center gap-4 relative z-[100]">
+                <div class="flex-1 relative w-full">
+                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"></i>
+                    <input type="text" id="symbolSearchInput" placeholder="Search symbol to add..." class="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <div id="symbolSearchSuggestions" class="absolute z-[110] w-full bg-slate-800 border border-slate-700 rounded-lg mt-1 hidden shadow-2xl max-h-60 overflow-y-auto"></div>
+                </div>
+                <div class="flex items-center space-x-2 w-full md:w-auto">
+                    <select id="exchangeSelector" onchange="handleExchangeChange(this.value)" class="bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm focus:outline-none">
+                        <option value="NSE">NSE</option>
+                        <option value="BSE">BSE</option>
+                        <option value="NFO">NFO</option>
+                        <option value="MCX">MCX</option>
+                        <option value="NSE_INDEX">NSE_INDEX</option>
+                        <option value="FO_STOCKS">FO_STOCKS TABLE</option>
+                    </select>
+                    <button onclick="addSelectedSymbol()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg transition-colors whitespace-nowrap">
+                        <i class="fas fa-plus mr-2"></i> Add
+                    </button>
+                    <button onclick="toggleBulkAdd()" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-list mr-2"></i> Bulk
+                    </button>
                 </div>
             </div>
 
-            <!-- Database Info Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="glass p-5 rounded-2xl flex items-center space-x-4">
-                    <div class="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-500">
-                        <i class="fas fa-hdd"></i>
-                    </div>
-                    <div>
-                        <p class="text-[10px] font-bold text-slate-500 uppercase">Storage Path</p>
-                        <p class="text-sm font-mono text-slate-300">data/trading_bot.duckdb</p>
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Left: Download Settings -->
+                <div class="lg:col-span-5 space-y-6">
+                    <div class="glass rounded-2xl p-6 h-full">
+                        <div class="flex items-center space-x-3 mb-6">
+                            <i class="fas fa-cog text-purple-500"></i>
+                            <h3 class="font-bold text-white">Download Settings</h3>
+                        </div>
+
+                        <div class="space-y-6">
+                            <!-- Quick Range -->
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Quick Date Range</label>
+                                <div class="flex flex-wrap gap-2">
+                                    <button onclick="setQuickRange('1M')" class="px-3 py-1.5 bg-slate-800 hover:bg-purple-500/20 border border-slate-700 rounded-md text-xs text-slate-300 hover:text-purple-400 transition-all">1M</button>
+                                    <button onclick="setQuickRange('3M')" class="px-3 py-1.5 bg-slate-800 hover:bg-purple-500/20 border border-slate-700 rounded-md text-xs text-slate-300 hover:text-purple-400 transition-all">3M</button>
+                                    <button onclick="setQuickRange('6M')" class="px-3 py-1.5 bg-slate-800 hover:bg-purple-500/20 border border-slate-700 rounded-md text-xs text-slate-300 hover:text-purple-400 transition-all">6M</button>
+                                    <button onclick="setQuickRange('1Y')" class="px-3 py-1.5 bg-slate-800 hover:bg-purple-500/20 border border-slate-700 rounded-md text-xs text-slate-300 hover:text-purple-400 transition-all">1Y</button>
+                                    <button onclick="setQuickRange('2Y')" class="px-3 py-1.5 bg-slate-800 hover:bg-purple-500/20 border border-slate-700 rounded-md text-xs text-slate-300 hover:text-purple-400 transition-all">2Y</button>
+                                    <button onclick="setQuickRange('5Y')" class="px-3 py-1.5 bg-slate-800 hover:bg-purple-500/20 border border-slate-700 rounded-md text-xs text-slate-300 hover:text-purple-400 transition-all">5Y</button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-400 mb-2">From</label>
+                                    <input type="date" id="fetchFromDate" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-400 mb-2">To</label>
+                                    <input type="date" id="fetchToDate" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">Interval</label>
+                                <select id="fetchInterval" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm">
+                                    <option value="1m">1 Minute</option>
+                                    <option value="5m">5 Minutes</option>
+                                    <option value="15m">15 Minutes</option>
+                                    <option value="30m">30 Minutes</option>
+                                    <option value="1h">1 Hour</option>
+                                    <option value="1d">Daily</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">Parallel Workers</label>
+                                <select id="fetchWorkers" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm">
+                                    <option value="1">1 (Sequential)</option>
+                                    <option value="3">3 (Fast)</option>
+                                    <option value="5" selected>5 (Balanced)</option>
+                                    <option value="10">10 (Aggressive)</option>
+                                </select>
+                            </div>
+
+                            <div class="flex items-center justify-between p-3 bg-slate-800/30 rounded-xl border border-slate-700/50">
+                                <div>
+                                    <p class="text-sm font-medium text-white">Incremental Download</p>
+                                    <p class="text-[10px] text-slate-500">Only download new data after last timestamp</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="fetchIncremental" class="sr-only peer">
+                                    <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                                </label>
+                            </div>
+
+                            <button onclick="startBulkDownload()" id="bulkDownloadBtn" class="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl transition-all shadow-lg shadow-purple-500/20 flex items-center justify-center font-bold">
+                                <i class="fas fa-cloud-download-alt mr-2"></i> Download All (<span id="selectedCount">0</span>)
+                            </button>
+                        </div>
                     </div>
                 </div>
-                <div class="glass p-5 rounded-2xl flex items-center space-x-4">
-                    <div class="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center text-amber-500">
-                        <i class="fas fa-clock"></i>
+
+                <!-- Right: Symbols List -->
+                <div class="lg:col-span-7 space-y-6">
+                    <div class="glass rounded-2xl overflow-hidden flex flex-col h-full">
+                        <div class="p-6 flex items-center justify-between border-b border-slate-800">
+                            <div class="flex items-center space-x-3">
+                                <i class="fas fa-list text-purple-500"></i>
+                                <h3 class="font-bold text-white">Symbols (<span id="watchlistCount">0</span>)</h3>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button onclick="selectAllWatchlist(true)" class="text-[10px] uppercase font-bold text-slate-400 hover:text-white transition-colors">Select All</button>
+                                <span class="text-slate-700">|</span>
+                                <button onclick="selectAllWatchlist(false)" class="text-[10px] uppercase font-bold text-slate-400 hover:text-white transition-colors">Clear</button>
+                            </div>
+                        </div>
+
+                        <div class="flex-1 overflow-y-auto max-h-[500px]">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-800/50 text-slate-500 uppercase font-bold sticky top-0 z-10">
+                                    <tr>
+                                        <th class="px-6 py-3 w-10"></th>
+                                        <th class="px-6 py-3">Symbol</th>
+                                        <th class="px-6 py-3">Exchange</th>
+                                        <th class="px-6 py-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fetcher-watchlist-body" class="divide-y divide-slate-800 text-slate-300">
+                                    <!-- Watchlist items will be injected here -->
+                                    <tr>
+                                        <td colspan="4" class="px-6 py-20 text-center text-slate-500 italic">
+                                            Search and add symbols to build your download watchlist.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Placeholder for other subtabs -->
+        <div id="fetcher-subtab-scheduler" class="fetcher-subtab hidden glass rounded-2xl p-20 text-center text-slate-500 italic">
+            Scheduler functionality coming soon...
+        </div>
+        <div id="fetcher-subtab-jobs" class="fetcher-subtab hidden glass rounded-2xl p-20 text-center text-slate-500 italic">
+            Recent download jobs tracking coming soon...
+        </div>
+        <div id="fetcher-subtab-export" class="fetcher-subtab hidden glass rounded-2xl p-20 text-center text-slate-500 italic">
+            Export/Import functionality coming soon...
+        </div>
+    </div>
+
+    <div id="tab-viewer" class="tab-content hidden space-y-6">
+        <div class="glass rounded-2xl p-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
+                        <i class="fas fa-table-list text-xl"></i>
                     </div>
                     <div>
-                        <p class="text-[10px] font-bold text-slate-500 uppercase">Last Backup</p>
-                        <p class="text-sm text-slate-300">2 hours ago</p>
+                        <h2 class="text-xl font-bold text-white">Universal Data Browser</h2>
+                        <p class="text-xs text-slate-400 uppercase tracking-tighter" id="viewer-record-count">Select a table to browse data</p>
                     </div>
+                </div>
+                
+                <div class="flex items-center space-x-3">
+                    <select id="viewer-table-select" onchange="initializeViewer()" class="bg-slate-800 border border-slate-700 rounded-lg py-2 px-4 text-white text-sm focus:ring-2 focus:ring-emerald-500">
+                        <option value="">Choose Table...</option>
+                    </select>
+                    <button onclick="exportViewerData()" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                        <i class="fas fa-download mr-2"></i>Export
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Table Container -->
+            <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-900/30">
+                <table id="universal-table" class="w-full text-left text-xs">
+                    <thead id="universal-thead" class="bg-slate-800/80 text-slate-400 uppercase font-bold sticky top-0 z-10">
+                        <!-- Dynamic headers and filters will be injected here -->
+                    </thead>
+                    <tbody id="universal-tbody" class="divide-y divide-slate-800 text-slate-300">
+                        <tr>
+                            <td class="px-6 py-20 text-center text-slate-500 italic">
+                                Please select a table from the dropdown above.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div id="viewer-pagination" class="hidden mt-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="text-slate-400 text-sm" id="viewer-pagination-info">Showing 0-0 of 0</div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="changeViewerPage(-1)" id="viewer-prev" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300">
+                        Page <span id="viewer-current-page" class="mx-1 text-white font-bold">1</span> of <span id="viewer-total-pages" class="mx-1 text-white font-bold">1</span>
+                    </div>
+                    <button onclick="changeViewerPage(1)" id="viewer-next" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-historical" class="tab-content hidden space-y-6">
+        <div class="glass rounded-2xl p-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-500">
+                        <i class="fas fa-history text-xl"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Historical Data Browser</h2>
+                        <p class="text-xs text-slate-400 uppercase tracking-tighter">Browse historical 1-minute candle data</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters Section -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Date</label>
+                    <select id="historical-date-select" onchange="loadHistoricalSymbols()" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white focus:ring-2 focus:ring-purple-500">
+                        <option value="">Select Date...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Symbol</label>
+                    <select id="historical-symbol-select" onchange="loadHistoricalData()" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white focus:ring-2 focus:ring-purple-500">
+                        <option value="">Select Symbol...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Records Per Page</label>
+                    <select id="historical-page-size" onchange="changeHistoricalPageSize()" class="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-white focus:ring-2 focus:ring-purple-500">
+                        <option value="50">50</option>
+                        <option value="100" selected>100</option>
+                        <option value="200">200</option>
+                        <option value="500">500</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Data Table -->
+            <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-900/30">
+                <table id="historical-table" class="w-full text-left text-xs">
+                    <thead id="historical-thead" class="bg-slate-800/80 text-slate-400 uppercase font-bold sticky top-0 z-10">
+                        <!-- Headers will be dynamically populated -->
+                    </thead>
+                    <tbody id="historical-tbody" class="divide-y divide-slate-800 text-slate-300">
+                        <tr>
+                            <td class="px-6 py-20 text-center text-slate-500 italic" colspan="6">
+                                Select a date and symbol to view historical data.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div id="historical-pagination" class="hidden mt-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="text-slate-400 text-sm" id="historical-pagination-info">Showing 0-0 of 0</div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="changeHistoricalPage(-1)" id="historical-prev" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <div class="flex items-center bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300">
+                        Page <span id="historical-current-page" class="mx-1 text-white font-bold">1</span> of <span id="historical-total-pages" class="mx-1 text-white font-bold">1</span>
+                    </div>
+                    <button onclick="changeHistoricalPage(1)" id="historical-next" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
                 </div>
             </div>
         </div>
@@ -314,465 +414,246 @@
 
 {% block scripts %}
 <script>
-    // Global variables for pagination
-    let currentPage = 1;
-    const itemsPerPage = 50;
-    let totalItems = 0;
-    let currentData = [];
+    // Tab Management
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`tab-${tabId}`).classList.remove('hidden');
 
-    // Initialize date pickers with today and yesterday as defaults
-    document.addEventListener('DOMContentLoaded', function() {
-        const today = new Date().toISOString().split('T')[0];
-        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-
-        document.getElementById('fromDateInput').value = yesterday;
-        document.getElementById('toDateInput').value = today;
-        document.getElementById('savedFromDateFilter').value = yesterday;
-        document.getElementById('savedToDateFilter').value = today;
-
-        // Enable buttons when instrument is selected
-        document.getElementById('instrumentInput').addEventListener('change', function() {
-            const isValid = this.value.includes('|'); // Basic validation for instrument key format
-            document.getElementById('previewBtn').disabled = !isValid;
-            document.getElementById('saveBtn').disabled = !isValid;
+        document.querySelectorAll('[id^="tab-"][id$="-btn"]').forEach(btn => {
+            btn.classList.remove('border-blue-500', 'text-white');
+            btn.classList.add('border-transparent', 'text-slate-500');
         });
-
-        // Setup interval validation based on unit selection
-        document.getElementById('unitSelector').addEventListener('change', function() {
-            const intervalInput = document.getElementById('intervalInput');
-            const unit = this.value;
-
-            // Reset to default value
-            intervalInput.value = 1;
-
-            // Set min/max based on unit
-            if (unit === 'minutes') {
-                intervalInput.min = 1;
-                intervalInput.max = 300;
-                intervalInput.placeholder = "1-300";
-            } else if (unit === 'hours') {
-                intervalInput.min = 1;
-                intervalInput.max = 5;
-                intervalInput.placeholder = "1-5";
-            } else {
-                intervalInput.min = 1;
-                intervalInput.max = 1;
-                intervalInput.placeholder = "1";
+        const activeBtn = document.getElementById(`tab-${tabId}-btn`);
+        activeBtn.classList.add('border-blue-500', 'text-white');
+        activeBtn.classList.remove('border-transparent', 'text-slate-500');
+        
+        // Special handling for historical tab
+        if (tabId === 'historical') {
+            // Load dates if not already loaded
+            if (document.getElementById('historical-date-select').options.length <= 1) {
+                loadHistoricalDates();
             }
+        }
+    }
+
+    // Universal Viewer State
+    let viewerState = {
+        tableName: '',
+        metadata: [],
+        filters: {},
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        lastData: []
+    };
+
+    // Initialize the viewer when a table is selected
+    async function initializeViewer() {
+        const select = document.getElementById('viewer-table-select');
+        viewerState.tableName = select.value;
+        if (!viewerState.tableName) {
+            document.getElementById('universal-tbody').innerHTML = '<tr><td class="px-6 py-20 text-center text-slate-500 italic">Please select a table from the dropdown above.</td></tr>';
+            document.getElementById('viewer-pagination').classList.add('hidden');
+            return;
+        }
+
+        viewerState.filters = {};
+        viewerState.page = 1;
+
+        try {
+            const res = await fetch(`/database/api/table-metadata/${viewerState.tableName}`);
+            const data = await res.json();
+            if (data.success) {
+                viewerState.metadata = data.metadata;
+                renderViewerHeaders();
+                loadViewerData();
+            }
+        } catch (e) { console.error("Metadata fetch error:", e); }
+    }
+
+    // Render Table Headers with Filter Inputs (Reference Mockup Style)
+    function renderViewerHeaders() {
+        const thead = document.getElementById('universal-thead');
+        
+        // Header Row
+        let headerRow = '<tr>';
+        viewerState.metadata.forEach(col => {
+            headerRow += `<th class="px-6 py-4 border-b border-slate-700 text-slate-200 whitespace-nowrap min-w-[150px]">${col.name}</th>`;
         });
+        headerRow += '</tr>';
 
-        // Load instruments for filter dropdown
-        loadSavedInstruments();
+        // Integrated Filter Row
+        let filterRow = '<tr class="bg-slate-800/40">';
+        viewerState.metadata.forEach(col => {
+            filterRow += `<td class="px-3 py-2 border-b border-slate-800">`;
+            
+            if (col.filter_type === 'range') {
+                filterRow += `
+                    <div class="flex flex-col space-y-1">
+                        <input type="number" placeholder="Min" class="viewer-filter bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-[10px] w-full" 
+                               onchange="updateFilter('${col.name}', 'min', this.value)">
+                        <input type="number" placeholder="Max" class="viewer-filter bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-[10px] w-full" 
+                               onchange="updateFilter('${col.name}', 'max', this.value)">
+                    </div>`;
+            } else if (col.filter_type === 'select') {
+                filterRow += `
+                    <select class="viewer-filter w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-[10px]" 
+                            onchange="updateFilter('${col.name}', 'value', this.value)">
+                        <option value="">All</option>
+                        ${col.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+                    </select>`;
+            } else if (col.filter_type === 'date') {
+                filterRow += `
+                    <input type="date" class="viewer-filter w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-[10px]" 
+                           onchange="updateFilter('${col.name}', 'value', this.value)">`;
+            } else {
+                filterRow += `
+                    <input type="text" placeholder="Search..." class="viewer-filter w-full bg-slate-900/50 border border-slate-700 rounded px-2 py-1 text-[10px]" 
+                           oninput="debounceUpdateFilter('${col.name}', 'value', this.value)">`;
+            }
+            
+            filterRow += `</td>`;
+        });
+        filterRow += '</tr>';
 
-        // Load initial data
-        loadTables();
-    });
+        thead.innerHTML = headerRow + filterRow;
+    }
 
-    // Load instrument suggestions as user types
-    document.getElementById('instrumentInput').addEventListener('input', debounce(function() {
-        const searchTerm = this.value.trim();
-        if (searchTerm.length >= 2) {
-            fetchInstrumentSuggestions(searchTerm);
+    let filterDebounce;
+    function debounceUpdateFilter(col, type, val) {
+        clearTimeout(filterDebounce);
+        filterDebounce = setTimeout(() => updateFilter(col, type, val), 500);
+    }
+
+    function updateFilter(col, type, val) {
+        if (type === 'min' || type === 'max') {
+            if (!viewerState.filters[col]) viewerState.filters[col] = {};
+            viewerState.filters[col][type] = val === '' ? null : parseFloat(val);
         } else {
-            hideSuggestions();
+            viewerState.filters[col] = val;
         }
-    }, 300));
-
-    // Debounce function to limit API calls
-    function debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
+        viewerState.page = 1;
+        loadViewerData();
     }
 
-    // Fetch instrument suggestions
-    async function fetchInstrumentSuggestions(searchTerm) {
-        try {
-            const response = await fetch(`/database/api/instruments-search?search_term=${encodeURIComponent(searchTerm)}`);
-            const data = await response.json();
-
-            if (data.success) {
-                showSuggestions(data.instruments);
-            } else {
-                console.error('Error fetching instruments:', data.message);
-            }
-        } catch (error) {
-            console.error('Error fetching instrument suggestions:', error);
-        }
-    }
-
-    // Show instrument suggestions
-    function showSuggestions(instruments) {
-        const suggestionsDiv = document.getElementById('instrumentSuggestions');
-        if (instruments.length === 0) {
-            suggestionsDiv.classList.add('hidden');
-            return;
-        }
-
-        suggestionsDiv.innerHTML = instruments.slice(0, 10).map(inst => `
-            <div class="p-2 hover:bg-slate-700 cursor-pointer border-b border-slate-700 last:border-b-0"
-                 onclick="selectInstrument('${inst.key}', '${inst.name}')">
-                <div class="font-medium text-white text-sm">${inst.name}</div>
-                <div class="text-xs text-slate-400">${inst.key}</div>
-            </div>
-        `).join('');
-
-        suggestionsDiv.classList.remove('hidden');
-    }
-
-    // Hide suggestions
-    function hideSuggestions() {
-        document.getElementById('instrumentSuggestions').classList.add('hidden');
-    }
-
-    // Select an instrument from suggestions
-    function selectInstrument(key, name) {
-        document.getElementById('instrumentInput').value = key;
-        hideSuggestions();
-
-        // Enable buttons
-        const isValid = key.includes('|');
-        document.getElementById('previewBtn').disabled = !isValid;
-        document.getElementById('saveBtn').disabled = !isValid;
-    }
-
-    // Fetch and preview data
-    async function fetchAndPreview() {
-        const instrumentKey = document.getElementById('instrumentInput').value;
-        const unit = document.getElementById('unitSelector').value;
-        const interval = parseInt(document.getElementById('intervalInput').value);
-        const fromDate = document.getElementById('fromDateInput').value;
-        const toDate = document.getElementById('toDateInput').value;
-
-        // Validate inputs
-        if (!instrumentKey || !unit || !interval || !fromDate || !toDate) {
-            showError('Please fill in all fields');
-            return;
-        }
-
-        showLoading(true);
-        hideMessages();
+    async function loadViewerData() {
+        const tbody = document.getElementById('universal-tbody');
+        tbody.innerHTML = `<tr><td colspan="${viewerState.metadata.length}" class="px-6 py-20 text-center"><i class="fas fa-circle-notch fa-spin mr-2"></i> Loading data...</td></tr>`;
 
         try {
-            // For preview, we'll simulate a fetch by calling the save endpoint but not saving
-            const response = await fetch('/database/api/request-historical-fetch', {
+            const res = await fetch(`/database/api/query/${viewerState.tableName}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    instrument_key: instrumentKey,
-                    unit: unit,
-                    interval: interval,
-                    from_date: fromDate,
-                    to_date: toDate
+                    filters: viewerState.filters,
+                    page: viewerState.page,
+                    page_size: viewerState.pageSize
                 })
             });
-
-            const data = await response.json();
-
-            if (data.success) {
-                showSuccess('Data fetched successfully. Use "Save to DB" to persist.');
-
-                // Load the data into the table
-                await loadHistoricalData(instrumentKey, fromDate, toDate);
-            } else {
-                showError(data.message || 'Failed to fetch data');
+            const result = await res.json();
+            
+            if (result.success) {
+                viewerState.total = result.total;
+                viewerState.lastData = result.data;
+                renderViewerData(result.data);
+                updateViewerPagination();
             }
-        } catch (error) {
-            console.error('Error fetching data:', error);
-            showError('Network error. Please try again.');
-        } finally {
-            showLoading(false);
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="${viewerState.metadata.length}" class="px-6 py-20 text-center text-rose-500">Error loading data.</td></tr>`;
         }
     }
 
-    // Fetch and save data to database
-    async function fetchAndSave() {
-        const instrumentKey = document.getElementById('instrumentInput').value;
-        const unit = document.getElementById('unitSelector').value;
-        const interval = parseInt(document.getElementById('intervalInput').value);
-        const fromDate = document.getElementById('fromDateInput').value;
-        const toDate = document.getElementById('toDateInput').value;
-
-        // Validate inputs
-        if (!instrumentKey || !unit || !interval || !fromDate || !toDate) {
-            showError('Please fill in all fields');
-            return;
-        }
-
-        showLoading(true);
-        hideMessages();
-
-        try {
-            const response = await fetch('/database/api/request-historical-fetch', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    instrument_key: instrumentKey,
-                    unit: unit,
-                    interval: interval,
-                    from_date: fromDate,
-                    to_date: toDate
-                })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                showSuccess(data.message || 'Data fetch initiated successfully');
-
-                // Load the data into the table
-                await loadHistoricalData(instrumentKey, fromDate, toDate);
-
-                // Reload the instrument filter options
-                loadSavedInstruments();
-            } else {
-                showError(data.message || 'Failed to save data');
-            }
-        } catch (error) {
-            console.error('Error saving data:', error);
-            showError('Network error. Please try again.');
-        } finally {
-            showLoading(false);
-        }
-    }
-
-    // Load historical data into the table
-    async function loadHistoricalData(instrumentKey, fromDate, toDate, page = 1) {
-        try {
-            const offset = (page - 1) * itemsPerPage;
-            const url = `/database/api/historical-data?instrument_key=${encodeURIComponent(instrumentKey)}&from_date=${encodeURIComponent(fromDate)}&to_date=${encodeURIComponent(toDate)}&limit=${itemsPerPage}&offset=${offset}`;
-
-            const response = await fetch(url);
-            const data = await response.json();
-
-            if (data.success) {
-                currentData = data.data;
-                totalItems = data.total;
-                currentPage = page;
-
-                renderDataTable(currentData);
-                updatePaginationControls();
-
-                // Update stats
-                document.getElementById('dataStats').textContent = `${totalItems} Records • ${fromDate} to ${toDate}`;
-            } else {
-                showError(data.message || 'Failed to load data');
-                document.getElementById('dataTableBody').innerHTML = '<tr><td colspan="7" class="px-4 py-20 text-center text-slate-500 italic">No data found</td></tr>';
-            }
-        } catch (error) {
-            console.error('Error loading historical data:', error);
-            showError('Network error while loading data');
-        }
-    }
-
-    // Render data in the table
-    function renderDataTable(data) {
-        const tbody = document.getElementById('dataTableBody');
-
+    function renderViewerData(data) {
+        const tbody = document.getElementById('universal-tbody');
         if (data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-20 text-center text-slate-500 italic">No data found</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${viewerState.metadata.length}" class="px-6 py-20 text-center text-slate-500">No records found.</td></tr>`;
             return;
         }
 
-        tbody.innerHTML = data.map(row => {
-            // Format the values
-            const timestamp = new Date(row.timestamp).toLocaleString();
-            const open = parseFloat(row.open).toFixed(2);
-            const high = parseFloat(row.high).toFixed(2);
-            const low = parseFloat(row.low).toFixed(2);
-            const close = parseFloat(row.close).toFixed(2);
-            const volume = parseInt(row.volume).toLocaleString();
+        tbody.innerHTML = data.map(row => `
+            <tr class="hover:bg-slate-800/50 transition-colors">
+                ${viewerState.metadata.map(col => {
+                    let val = row[col.name];
+                    
+                    // Priority Display: If this is an identifier column (symbol or key),
+                    // show the Trading Symbol prominently if available.
+                    const isIdentifier = ['symbol', 'instrument_key'].includes(col.name.toLowerCase());
+                    if (isIdentifier && row['trading_symbol']) {
+                        return `
+                            <td class="px-6 py-3">
+                                <div class="font-bold text-emerald-400">${row['trading_symbol']}</div>
+                                <div class="text-[10px] text-slate-500 font-mono">${val}</div>
+                            </td>`;
+                    }
 
-            // Determine if price went up or down for color coding
-            const priceChange = parseFloat(row.close) - parseFloat(row.open);
-            const priceClass = priceChange >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                    if (val === null) return `<td class="px-6 py-3 text-slate-600 italic">null</td>`;
+                    
+                    // Date formatting
+                    if (col.type.includes('TIMESTAMP') || col.type.includes('DATE')) {
+                        // Ensure the browser treats the database timestamp as UTC
+                        // DuckDB returns 'YYYY-MM-DD HH:MM:SS'. We convert to ISO 'YYYY-MM-DDTHH:MM:SSZ'
+                        const utcVal = val.replace(' ', 'T') + 'Z';
+                        const date = new Date(utcVal);
+                        
+                        if (isNaN(date.getTime())) return `<td class="px-6 py-3 text-slate-500 font-mono text-[11px]">${val}</td>`;
 
-            return `
-                <tr class="hover:bg-slate-800/50">
-                    <td class="px-4 py-3 font-mono text-xs">${timestamp}</td>
-                    <td class="px-4 py-3 ${priceClass}">${open}</td>
-                    <td class="px-4 py-3 ${priceClass}">${high}</td>
-                    <td class="px-4 py-3 ${priceClass}">${low}</td>
-                    <td class="px-4 py-3 ${priceClass}">${close}</td>
-                    <td class="px-4 py-3 text-right">${volume}</td>
-                </tr>
-            `;
-        }).join('');
+                        const formatted = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + 
+                                        ' ' + date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+                        return `<td class="px-6 py-3 whitespace-nowrap text-slate-300 font-mono text-[11px]">${formatted}</td>`;
+                    }
+
+                    if (typeof val === 'number') {
+                        const colorClass = val > 0 ? 'text-emerald-400' : (val < 0 ? 'text-rose-400' : '');
+                        return `<td class="px-6 py-3 font-mono ${colorClass}">${val.toLocaleString(undefined, {maximumFractionDigits: 4})}</td>`;
+                    }
+                    return `<td class="px-6 py-3 truncate max-w-[250px]" title="${val}">${val}</td>`;
+                }).join('')}
+            </tr>
+        `).join('');
     }
 
-    // Update pagination controls
-    function updatePaginationControls() {
-        const totalPages = Math.ceil(totalItems / itemsPerPage);
-        const pageInfo = document.getElementById('pageInfo');
-        const prevBtn = document.getElementById('prevPageBtn');
-        const nextBtn = document.getElementById('nextPageBtn');
-        const paginationInfo = document.getElementById('paginationInfo');
-        const paginationControls = document.getElementById('paginationControls');
-
-        pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-        prevBtn.disabled = currentPage <= 1;
-        nextBtn.disabled = currentPage >= totalPages;
-
-        paginationInfo.textContent = `Showing ${Math.min((currentPage-1)*itemsPerPage + 1, totalItems)}-${Math.min(currentPage*itemsPerPage, totalItems)} of ${totalItems} records`;
-
-        if (totalItems > 0) {
-            paginationControls.classList.remove('hidden');
-        } else {
-            paginationControls.classList.add('hidden');
-        }
+    function updateViewerPagination() {
+        const totalPages = Math.ceil(viewerState.total / viewerState.pageSize) || 1;
+        document.getElementById('viewer-pagination').classList.remove('hidden');
+        document.getElementById('viewer-current-page').textContent = viewerState.page;
+        document.getElementById('viewer-total-pages').textContent = totalPages;
+        document.getElementById('viewer-prev').disabled = viewerState.page <= 1;
+        document.getElementById('viewer-next').disabled = viewerState.page >= totalPages;
+        
+        const start = (viewerState.page - 1) * viewerState.pageSize + 1;
+        const end = Math.min(viewerState.page * viewerState.pageSize, viewerState.total);
+        document.getElementById('viewer-pagination-info').textContent = `Showing ${start}-${end} of ${viewerState.total.toLocaleString()} records`;
+        document.getElementById('viewer-record-count').textContent = `${viewerState.total.toLocaleString()} Records Found`;
     }
 
-    // Change page
-    function changePage(page) {
-        if (page < 1) page = 1;
-
-        const totalPages = Math.ceil(totalItems / itemsPerPage);
-        if (page > totalPages) page = totalPages;
-
-        if (page !== currentPage) {
-            const instrumentKey = document.getElementById('instrumentInput').value;
-            const fromDate = document.getElementById('fromDateInput').value;
-            const toDate = document.getElementById('toDateInput').value;
-
-            loadHistoricalData(instrumentKey, fromDate, toDate, page);
-        }
+    function changeViewerPage(delta) {
+        viewerState.page += delta;
+        loadViewerData();
     }
 
-    // Load saved instruments for filter dropdown
-    async function loadSavedInstruments() {
-        try {
-            // Get unique instrument keys from the fo_stocks_master table
-            const response = await fetch('/database/api/instruments-search');
-            const data = await response.json();
-
-            if (data.success) {
-                const selectElement = document.getElementById('savedInstrumentFilter');
-                selectElement.innerHTML = '<option value="">All Instruments</option>';
-
-                data.instruments.forEach(inst => {
-                    const option = document.createElement('option');
-                    option.value = inst.key;
-                    option.textContent = `${inst.name} (${inst.key})`;
-                    selectElement.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Error loading saved instruments:', error);
-        }
-    }
-
-    // Export to CSV
-    function exportToCsv() {
-        if (currentData.length === 0) {
-            alert('No data to export');
-            return;
-        }
-
-        // Create CSV content
-        const headers = ['timestamp', 'open', 'high', 'low', 'close', 'volume'];
-        let csvContent = headers.join(',') + '\n';
-
-        currentData.forEach(row => {
-            const values = headers.map(header => {
-                let value = row[header];
-                if (typeof value === 'string' && value.includes(',')) {
-                    value = `"${value}"`; // Escape commas in values
-                }
-                return value;
-            });
-            csvContent += values.join(',') + '\n';
+    function exportViewerData() {
+        if (!viewerState.lastData.length) return alert("No data to export");
+        const headers = viewerState.metadata.map(m => m.name);
+        let csv = headers.join(',') + '\n';
+        viewerState.lastData.forEach(row => {
+            csv += headers.map(h => {
+                let v = row[h];
+                return typeof v === 'string' && v.includes(',') ? `"${v}"` : v;
+            }).join(',') + '\n';
         });
-
-        // Create download link
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `ohlcv_data_${Date.now()}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${viewerState.tableName}_export.csv`;
+        a.click();
     }
 
-    // Toggle table/chart view
-    function toggleTableView() {
-        const btn = document.getElementById('toggleViewBtn');
-        const isChartView = btn.innerHTML.includes('Table View');
-
-        if (isChartView) {
-            // Switch to table view
-            btn.innerHTML = '<i class="fas fa-chart-bar mr-1"></i> Chart View';
-            document.getElementById('dataTable').parentElement.parentElement.classList.remove('hidden');
-        } else {
-            // Switch to chart view
-            btn.innerHTML = '<i class="fas fa-table mr-1"></i> Table View';
-            document.getElementById('dataTable').parentElement.parentElement.classList.add('hidden');
-
-            // TODO: Implement chart view using Chart.js or similar
-            alert('Chart view would be implemented here using Chart.js or similar library');
-        }
-    }
-
-    // Show loading indicator
-    function showLoading(show) {
-        const loader = document.getElementById('loadingIndicator');
-        if (show) {
-            loader.classList.remove('hidden');
-        } else {
-            loader.classList.add('hidden');
-        }
-    }
-
-    // Show error message
-    function showError(message) {
-        const errorDiv = document.getElementById('errorMessage');
-        const errorText = document.getElementById('errorText');
-
-        errorText.textContent = message;
-        errorDiv.classList.remove('hidden');
-
-        // Hide after 5 seconds
-        setTimeout(() => {
-            errorDiv.classList.add('hidden');
-        }, 5000);
-    }
-
-    // Show success message
-    function showSuccess(message) {
-        const successDiv = document.getElementById('successMessage');
-        const successText = document.getElementById('successText');
-
-        successText.textContent = message;
-        successDiv.classList.remove('hidden');
-
-        // Hide after 5 seconds
-        setTimeout(() => {
-            successDiv.classList.add('hidden');
-        }, 5000);
-    }
-
-    // Hide all messages
-    function hideMessages() {
-        document.getElementById('errorMessage').classList.add('hidden');
-        document.getElementById('successMessage').classList.add('hidden');
-    }
-
-    // Load tables function (existing)
     async function loadTables() {
-        const res = await fetch('{{ url_for("database.get_tables") }}');
+        const res = await fetch('/database/api/tables');
         const data = await res.json();
         const list = document.getElementById('table-list');
+        const select = document.getElementById('viewer-table-select');
 
         list.innerHTML = data.tables.map(t => `
             <button onclick="previewTable('${t}')" class="w-full text-left px-4 py-3 rounded-xl hover:bg-slate-700/50 transition-colors group flex items-center">
@@ -780,41 +661,654 @@
                 <span class="text-sm font-medium text-slate-300 group-hover:text-white">${t}</span>
             </button>
         `).join('');
+
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">Choose Table...</option>' + 
+            data.tables.map(t => `<option value="${t}" ${t === currentVal ? 'selected' : ''}>${t}</option>`).join('');
     }
 
-    // Preview table function (existing)
     async function previewTable(tableName) {
         document.getElementById('selected-table-name').textContent = tableName;
-        // In a real app, you'd fetch schema info here
         const body = document.getElementById('table-preview-body');
-        body.innerHTML = `<tr><td colspan="4" class="px-6 py-20 text-center text-slate-400 italic">Fetching schema for ${tableName}...</td></tr>`;
+        body.innerHTML = `<tr><td colspan="4" class="px-6 py-20 text-center text-slate-400 italic">Fetching schema...</td></tr>`;
 
-        // Mocking table structure for demo
-        setTimeout(() => {
-            body.innerHTML = `
-                <tr><td class="px-6 py-4 font-mono text-blue-400">id</td><td class="px-6 py-4">INTEGER</td><td class="px-6 py-4">NO</td><td class="px-6 py-4">PRIMARY KEY</td></tr>
-                <tr><td class="px-6 py-4 font-mono text-blue-400">symbol</td><td class="px-6 py-4">VARCHAR</td><td class="px-6 py-4">NO</td><td class="px-6 py-4">-</td></tr>
-                <tr><td class="px-6 py-4 font-mono text-blue-400">price</td><td class="px-6 py-4">DOUBLE</td><td class="px-6 py-4">YES</td><td class="px-6 py-4">0.0</td></tr>
-                <tr><td class="px-6 py-4 font-mono text-blue-400">created_at</td><td class="px-6 py-4">TIMESTAMP</td><td class="px-6 py-4">NO</td><td class="px-6 py-4">NOW()</td></tr>
-            `;
-            document.getElementById('table-stats').textContent = '1,240 Rows • 156 KB';
-        }, 300);
+        try {
+            const res = await fetch(`/database/api/table-metadata/${tableName}`);
+            const data = await res.json();
+            if (data.success) {
+                body.innerHTML = data.metadata.map(col => `
+                    <tr>
+                        <td class="px-6 py-4 font-mono text-blue-400">${col.name}</td>
+                        <td class="px-6 py-4">${col.type}</td>
+                        <td class="px-6 py-4">YES</td>
+                        <td class="px-6 py-4">-</td>
+                    </tr>
+                `).join('');
+                document.getElementById('table-stats').textContent = `${data.metadata.length} Columns Detected`;
+            }
+        } catch (e) { body.innerHTML = 'Error loading schema'; }
     }
 
-    // Add event listeners for filter changes
-    document.getElementById('savedInstrumentFilter').addEventListener('change', applyFilters);
-    document.getElementById('savedFromDateFilter').addEventListener('change', applyFilters);
-    document.getElementById('savedToDateFilter').addEventListener('change', applyFilters);
+    // --- NEW FETCHER LOGIC (Historify Inspired) ---
+    let fetcherWatchlist = [];
+    let selectedForDownload = new Set();
+    let universeSymbols = [];
 
-    // Apply filters function
-    async function applyFilters() {
-        const instrument = document.getElementById('savedInstrumentFilter').value;
-        const fromDate = document.getElementById('savedFromDateFilter').value;
-        const toDate = document.getElementById('savedToDateFilter').value;
+    function switchFetcherSubTab(tabId) {
+        document.querySelectorAll('.fetcher-subtab').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`fetcher-subtab-${tabId}`).classList.remove('hidden');
 
-        if (instrument) {
-            await loadHistoricalData(instrument, fromDate || undefined, toDate || undefined, 1);
+        document.querySelectorAll('[id^="fetcher-"][id$="-btn"]').forEach(btn => {
+            btn.classList.remove('border-purple-500', 'text-white');
+            btn.classList.add('border-transparent', 'text-slate-500');
+        });
+        const activeBtn = document.getElementById(`fetcher-${tabId}-btn`);
+        activeBtn.classList.add('border-purple-500', 'text-white');
+        activeBtn.classList.remove('border-transparent', 'text-slate-500');
+    }
+
+    async function handleExchangeChange(value) {
+        if (value === 'FO_STOCKS') {
+            if (!confirm("Add all symbols from FO Master table to watchlist?")) {
+                document.getElementById('exchangeSelector').value = 'NSE';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/database/api/query/fo_stocks`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ page_size: 1000 })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    let addedCount = 0;
+                    data.data.forEach(s => {
+                        if (!fetcherWatchlist.find(i => i.key === s.instrument_key)) {
+                            fetcherWatchlist.push({ 
+                                key: s.instrument_key, 
+                                symbol: s.trading_symbol, 
+                                exchange: s.instrument_key.split('|')[0], 
+                                added: new Date().toLocaleDateString() 
+                            });
+                            selectedForDownload.add(s.instrument_key);
+                            addedCount++;
+                        }
+                    });
+                    updateWatchlistUI();
+                    alert(`Added ${addedCount} new symbols to watchlist.`);
+                }
+            } catch(e) {
+                alert("Error fetching FO stocks");
+            }
+            document.getElementById('exchangeSelector').value = 'NSE';
         }
     }
+
+    async function loadUniverseForSearch() {
+        try {
+            // Fetch FO Stocks
+            const resFo = await fetch(`/database/api/query/fo_stocks`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ page_size: 1000 })
+            });
+            const dataFo = await resFo.json();
+            
+            // Fetch Indices
+            const resIdx = await fetch(`/database/api/query/instrument_meta`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    filters: { instrument_key: 'INDEX' },
+                    page_size: 1000 
+                })
+            });
+            const dataIdx = await resIdx.json();
+
+            universeSymbols = [];
+            if (dataFo.success) universeSymbols.push(...dataFo.data);
+            if (dataIdx.success) universeSymbols.push(...dataIdx.data);
+            
+        } catch(e) {}
+    }
+
+    const symbolSearchInput = document.getElementById('symbolSearchInput');
+    const suggestionsBox = document.getElementById('symbolSearchSuggestions');
+
+    symbolSearchInput?.addEventListener('input', debounce(function() {
+        const term = this.value.trim().toUpperCase();
+        if (term.length < 1) {
+            suggestionsBox.classList.add('hidden');
+            return;
+        }
+
+        const exchange = document.getElementById('exchangeSelector').value;
+        
+        const filtered = universeSymbols.filter(s => {
+            const sym = (s.trading_symbol || s.symbol || "").toUpperCase();
+            const key = (s.instrument_key || "").toUpperCase();
+            
+            // Match term against either symbol or key
+            const matchesTerm = sym.includes(term) || key.includes(term);
+            
+            // Match exchange
+            let matchesExchange = false;
+            if (exchange === 'FO_STOCKS') {
+                matchesExchange = true; 
+            } else if (exchange === 'NSE_INDEX') {
+                matchesExchange = key.startsWith('NSE_INDEX');
+            } else {
+                matchesExchange = key.startsWith(exchange);
+            }
+            
+            return matchesTerm && matchesExchange;
+        }).slice(0, 30); 
+
+        if (filtered.length > 0) {
+            suggestionsBox.innerHTML = filtered.map(s => {
+                const sym = s.trading_symbol || s.symbol || "Unknown";
+                const key = s.instrument_key || s.symbol;
+                const itemExchange = key.split('|')[0];
+                
+                return `
+                    <div class="p-3 hover:bg-slate-700 cursor-pointer border-b border-slate-700 last:border-b-0 flex justify-between items-center"
+                         onclick="addToWatchlist('${key}', '${sym}', '${itemExchange}')">
+                        <div>
+                            <div class="font-bold text-white text-sm">${sym}</div>
+                            <div class="text-[10px] text-slate-500">${key}</div>
+                        </div>
+                        <div class="text-[10px] bg-slate-900 px-2 py-1 rounded text-slate-400 font-bold">${itemExchange}</div>
+                    </div>
+                `;
+            }).join('');
+            suggestionsBox.classList.remove('hidden');
+        } else {
+            suggestionsBox.classList.add('hidden');
+        }
+    }, 200));
+
+    // Hide suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!symbolSearchInput?.contains(e.target) && !suggestionsBox?.contains(e.target)) {
+            suggestionsBox?.classList.add('hidden');
+        }
+    });
+
+    function addToWatchlist(key, symbol, exchange) {
+        if (fetcherWatchlist.find(i => i.key === key)) {
+            alert("Symbol already in watchlist");
+            return;
+        }
+        fetcherWatchlist.push({ key, symbol, exchange, added: new Date().toLocaleDateString() });
+        selectedForDownload.add(key);
+        updateWatchlistUI();
+        suggestionsBox.classList.add('hidden');
+        symbolSearchInput.value = '';
+    }
+
+    function removeFromWatchlist(key) {
+        fetcherWatchlist = fetcherWatchlist.filter(i => i.key !== key);
+        selectedForDownload.delete(key);
+        updateWatchlistUI();
+    }
+
+    function updateWatchlistUI() {
+        const tbody = document.getElementById('fetcher-watchlist-body');
+        document.getElementById('watchlistCount').textContent = fetcherWatchlist.length;
+        document.getElementById('selectedCount').textContent = selectedForDownload.size;
+
+        if (fetcherWatchlist.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-20 text-center text-slate-500 italic">Search and add symbols to build your download watchlist.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = fetcherWatchlist.map(item => `
+            <tr class="hover:bg-slate-800/30 transition-colors group">
+                <td class="px-6 py-4">
+                    <input type="checkbox" ${selectedForDownload.has(item.key) ? 'checked' : ''} 
+                           onchange="toggleSymbolSelection('${item.key}')"
+                           class="rounded border-slate-700 bg-slate-900 text-purple-600 focus:ring-purple-500 h-4 w-4">
+                </td>
+                <td class="px-6 py-4">
+                    <div class="font-bold text-white text-sm">${item.symbol}</div>
+                    <div class="text-[10px] text-slate-500 font-mono">${item.key}</div>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 font-bold uppercase">${item.exchange}</span>
+                </td>
+                <td class="px-6 py-4 text-right">
+                    <div class="flex justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onclick="viewChart('${item.key}')" class="p-2 text-slate-400 hover:text-emerald-400 transition-colors" title="View Chart">
+                            <i class="fas fa-chart-bar"></i>
+                        </button>
+                        <button onclick="removeFromWatchlist('${item.key}')" class="p-2 text-slate-400 hover:text-rose-500 transition-colors" title="Remove">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function toggleSymbolSelection(key) {
+        if (selectedForDownload.has(key)) selectedForDownload.delete(key);
+        else selectedForDownload.add(key);
+        document.getElementById('selectedCount').textContent = selectedForDownload.size;
+    }
+
+    function selectAllWatchlist(bool) {
+        if (bool) {
+            fetcherWatchlist.forEach(i => selectedForDownload.add(i.key));
+        } else {
+            selectedForDownload.clear();
+        }
+        updateWatchlistUI();
+    }
+
+    function setQuickRange(range) {
+        const to = new Date();
+        const from = new Date();
+        
+        switch(range) {
+            case '1M': from.setMonth(to.getMonth() - 1); break;
+            case '3M': from.setMonth(to.getMonth() - 3); break;
+            case '6M': from.setMonth(to.getMonth() - 6); break;
+            case '1Y': from.setFullYear(to.getFullYear() - 1); break;
+            case '2Y': from.setFullYear(to.getFullYear() - 2); break;
+            case '5Y': from.setFullYear(to.getFullYear() - 5); break;
+        }
+
+        document.getElementById('fetchFromDate').value = from.toISOString().split('T')[0];
+        document.getElementById('fetchToDate').value = to.toISOString().split('T')[0];
+    }
+
+    async function startBulkDownload() {
+        if (selectedForDownload.size === 0) {
+            alert("Please select at least one symbol to download.");
+            return;
+        }
+
+        const btn = document.getElementById('bulkDownloadBtn');
+        const from = document.getElementById('fetchFromDate').value;
+        const to = document.getElementById('fetchToDate').value;
+        const intervalFull = document.getElementById('fetchInterval').value;
+        const workers = parseInt(document.getElementById('fetchWorkers').value);
+        const incremental = document.getElementById('fetchIncremental').checked;
+
+        if (!from || !to) {
+            alert("Please select date range.");
+            return;
+        }
+
+        const intervalNum = parseInt(intervalFull);
+        const unitMap = { 'm': 'minutes', 'h': 'hours', 'd': 'days' };
+        const unitChar = intervalFull.slice(-1);
+        const unit = unitMap[unitChar] || 'minutes';
+
+        btn.disabled = true;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-2"></i> Initializing...`;
+
+        try {
+            const keys = Array.from(selectedForDownload);
+            const payload = {
+                instrument_key: keys.join(','), 
+                unit: unit,
+                interval: intervalNum,
+                from_date: from,
+                to_date: to,
+                workers: workers,
+                incremental: incremental
+            };
+
+            const res = await fetch('/database/api/request-historical-fetch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            alert(data.message || "Fetch job started");
+        } catch (e) {
+            alert("Error initiating fetch");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
+    function toggleBulkAdd() {
+        const input = prompt("Enter symbols separated by comma or space (e.g. RELIANCE, TCS, INFY):");
+        if (!input) return;
+        
+        const symbols = input.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+        const exchange = document.getElementById('exchangeSelector').value;
+        
+        let count = 0;
+        symbols.forEach(sym => {
+            const found = universeSymbols.find(s => s.trading_symbol === sym && s.instrument_key.startsWith(exchange));
+            if (found) {
+                if (!fetcherWatchlist.find(i => i.key === found.instrument_key)) {
+                    fetcherWatchlist.push({ 
+                        key: found.instrument_key, 
+                        symbol: found.trading_symbol, 
+                        exchange: exchange, 
+                        added: new Date().toLocaleDateString() 
+                    });
+                    selectedForDownload.add(found.instrument_key);
+                    count++;
+                }
+            }
+        });
+        
+        if (count > 0) {
+            updateWatchlistUI();
+            alert(`Added ${count} symbols to watchlist.`);
+        } else {
+            alert("No matching symbols found in the universe.");
+        }
+    }
+
+    function addSelectedSymbol() {
+        const input = document.getElementById('symbolSearchInput');
+        const term = input.value.trim().toUpperCase();
+        if (!term) return;
+
+        const exchange = document.getElementById('exchangeSelector').value;
+        const found = universeSymbols.find(s => s.trading_symbol === term && s.instrument_key.startsWith(exchange));
+        
+        if (found) {
+            addToWatchlist(found.instrument_key, found.trading_symbol, exchange);
+        } else {
+            alert("Symbol not found in selected exchange universe.");
+        }
+    }
+
+    function viewChart(key) {
+        window.location.href = `/charts?symbol=${key}`;
+    }
+    // --- END NEW FETCHER LOGIC ---
+
+    async function loadUniverseSymbols() {
+        await loadUniverseForSearch();
+    }
+
+    async function fixTimestamps() {
+        if (!confirm("This will shift all timestamps before 10:00 UTC by -5:30 to fix storage errors. Proceed?")) return;
+        
+        try {
+            const res = await fetch('/database/api/fix-timestamps');
+            const data = await res.json();
+            alert(data.message);
+            if (viewerState.tableName) loadViewerData();
+        } catch (e) { alert("Error fixing timestamps"); }
+    }
+
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func.apply(this, args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    // Historical Data Functions
+    let historicalState = {
+        date: '',
+        symbol: '',
+        page: 1,
+        pageSize: 100,  // Changed default to 100
+        total: 0,
+        lastData: [],
+        metadata: [],  // Store metadata for rendering
+        instrumentMap: {}  // Cache for instrument key to name mapping
+    };
+
+    async function loadHistoricalDates() {
+        try {
+            const res = await fetch('/database/api/historical-dates');
+            const data = await res.json();
+            if (data.success) {
+                const select = document.getElementById('historical-date-select');
+                select.innerHTML = '<option value="">Select Date...</option>';
+                
+                data.dates.forEach(date => {
+                    const option = document.createElement('option');
+                    option.value = date;
+                    option.textContent = date;
+                    select.appendChild(option);
+                });
+            }
+        } catch (e) {
+            console.error("Error loading historical dates:", e);
+        }
+    }
+
+    async function loadHistoricalSymbols() {
+        const dateSelect = document.getElementById('historical-date-select');
+        historicalState.date = dateSelect.value;
+        
+        if (!historicalState.date) {
+            document.getElementById('historical-symbol-select').innerHTML = '<option value="">Select Symbol...</option>';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/database/api/historical-symbols/${historicalState.date}`);
+            const data = await res.json();
+            if (data.success) {
+                const select = document.getElementById('historical-symbol-select');
+                select.innerHTML = '<option value="">Select Symbol...</option>';
+                
+                data.symbols.forEach(symbol => {
+                    const option = document.createElement('option');
+                    option.value = symbol;
+                    option.textContent = symbol;
+                    select.appendChild(option);
+                });
+            }
+        } catch (e) {
+            console.error("Error loading historical symbols:", e);
+        }
+    }
+
+    async function loadHistoricalData() {
+        const symbolSelect = document.getElementById('historical-symbol-select');
+        historicalState.symbol = symbolSelect.value;
+        // Remove time filters - they're no longer used
+        historicalState.page = 1;
+
+        if (!historicalState.date || !historicalState.symbol) {
+            document.getElementById('historical-tbody').innerHTML = '<tr><td class="px-6 py-20 text-center text-slate-500 italic" colspan="6">Select a date and symbol to view historical data.</td></tr>';
+            document.getElementById('historical-pagination').classList.add('hidden');
+            return;
+        }
+
+        try {
+            const res = await fetch('/database/api/historical-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: historicalState.date,
+                    symbol: historicalState.symbol,
+                    page: historicalState.page,
+                    page_size: historicalState.pageSize
+                })
+            });
+            const result = await res.json();
+
+            if (result.success) {
+                historicalState.total = result.total;
+                historicalState.lastData = result.data;
+                
+                // Generate metadata for the first load
+                if (historicalState.metadata.length === 0 && result.data.length > 0) {
+                    historicalState.metadata = Object.keys(result.data[0]).map(key => ({
+                        name: key,
+                        type: typeof result.data[0][key],
+                        filter_type: 'text'
+                    }));
+                }
+                
+                // Fetch instrument name mapping if not cached
+                await loadInstrumentNames(result.data);
+                
+                renderHistoricalData(result.data);
+                updateHistoricalPagination();
+            } else {
+                throw new Error(result.message || "Unknown error");
+            }
+        } catch (e) {
+            console.error("Error loading historical data:", e);
+            document.getElementById('historical-tbody').innerHTML = `<tr><td class="px-6 py-20 text-center text-rose-500" colspan="6">Error loading data: ${e.message}</td></tr>`;
+        }
+    }
+
+    // Function to load instrument names and cache them
+    async function loadInstrumentNames(data) {
+        if (!data || data.length === 0) return;
+        
+        // Get unique instrument keys from the data
+        const uniqueKeys = [...new Set(data.map(row => row.symbol))];
+        const keysToFetch = uniqueKeys.filter(key => !(key in historicalState.instrumentMap));
+        
+        if (keysToFetch.length === 0) return; // All instruments already cached
+        
+        try {
+            // Query the fo_stocks table to get the trading symbol for each instrument key
+            // We'll query each key individually to be compatible with the filter system
+            for (const key of keysToFetch) {
+                const res = await fetch('/database/api/query/fo_stocks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filters: { instrument_key: key },
+                        page: 1,
+                        page_size: 1
+                    })
+                });
+                
+                if (res.ok) {
+                    const result = await res.json();
+                    if (result.success && result.data.length > 0) {
+                        // Cache the trading symbol for this instrument key
+                        historicalState.instrumentMap[key] = result.data[0].trading_symbol || result.data[0].name || key;
+                    } else {
+                        // If not found, use the key itself
+                        historicalState.instrumentMap[key] = key;
+                    }
+                } else {
+                    // If there's an error, use the key itself
+                    historicalState.instrumentMap[key] = key;
+                }
+            }
+        } catch (e) {
+            console.error("Error fetching instrument names:", e);
+            // Fallback: map keys to themselves
+            keysToFetch.forEach(key => {
+                historicalState.instrumentMap[key] = key;
+            });
+        }
+    }
+
+    function renderHistoricalData(data) {
+        const tbody = document.getElementById('historical-tbody');
+        const thead = document.getElementById('historical-thead');
+        
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td class="px-6 py-20 text-center text-slate-500">No records found.</td></tr>';
+            return;
+        }
+
+        // Define the columns we want to show in order
+        const columns = [
+            { name: 'symbol', label: 'Symbol' },
+            { name: 'open', label: 'Open' },
+            { name: 'high', label: 'High' },
+            { name: 'low', label: 'Low' },
+            { name: 'close', label: 'Close' },
+            { name: 'volume', label: 'Volume' },
+            { name: 'timestamp', label: 'Timestamp' }
+        ];
+
+        // Create headers
+        thead.innerHTML = '<tr>' + columns.map(col => 
+            `<th class="px-6 py-4 border-b border-slate-700 text-slate-200 whitespace-nowrap">${col.label}</th>`
+        ).join('') + '</tr>';
+
+        // Create a function to generate cell content
+        function generateCellContent(row, colName) {
+            let val = row[colName];
+            if (val === undefined || val === null) return '<td class="px-6 py-3 text-slate-600 italic">null</td>';
+
+            // Special handling for symbol column - show name instead of key
+            if (colName === 'symbol') {
+                const displayName = historicalState.instrumentMap[val] || val;
+                return '<td class="px-6 py-3 font-bold text-emerald-400">' + displayName + '<br><span class="text-[10px] text-slate-500 font-mono">' + val + '</span></td>';
+            }
+
+            // Date formatting
+            if (colName === 'timestamp') {
+                let dateStr = val;
+                if (typeof val === 'string' && val.includes('T')) {
+                    dateStr = val.replace('T', ' ').split('.')[0];
+                }
+                return '<td class="px-6 py-3 whitespace-nowrap text-slate-300 font-mono text-[11px]">' + dateStr + '</td>';
+            }
+
+            if (typeof val === 'number') {
+                const colorClass = (colName === 'close' || colName === 'open') ? (val > row.open ? 'text-emerald-400' : 'text-rose-400') : '';
+                // Use Emerald for High, Rose for Low if you want, but for now let's stick to consistent numbering
+                let finalColorClass = '';
+                if (colName === 'high') finalColorClass = 'text-emerald-400';
+                if (colName === 'low') finalColorClass = 'text-rose-400';
+                if (colName === 'open' || colName === 'close' || colName === 'volume') finalColorClass = 'text-slate-300';
+
+                return '<td class="px-6 py-3 font-mono ' + finalColorClass + '">' + val.toLocaleString(undefined, {maximumFractionDigits: 4}) + '</td>';
+            }
+            return '<td class="px-6 py-3 truncate max-w-[250px]" title="' + val + '">' + val + '</td>';
+        }
+
+        // Build the table rows
+        tbody.innerHTML = data.map(row => {
+            const cellsHtml = columns.map(col => generateCellContent(row, col.name)).join('');
+            return `<tr class="hover:bg-slate-800/50 transition-colors border-b border-slate-800/50 last:border-0">${cellsHtml}</tr>`;
+        }).join('');
+    }
+
+    function updateHistoricalPagination() {
+        const totalPages = Math.ceil(historicalState.total / historicalState.pageSize) || 1;
+        document.getElementById('historical-pagination').classList.remove('hidden');
+        document.getElementById('historical-current-page').textContent = historicalState.page;
+        document.getElementById('historical-total-pages').textContent = totalPages;
+        document.getElementById('historical-prev').disabled = historicalState.page <= 1;
+        document.getElementById('historical-next').disabled = historicalState.page >= totalPages;
+
+        const start = (historicalState.page - 1) * historicalState.pageSize + 1;
+        const end = Math.min(historicalState.page * historicalState.pageSize, historicalState.total);
+        document.getElementById('historical-pagination-info').textContent = `Showing ${start}-${end} of ${historicalState.total.toLocaleString()} records`;
+    }
+
+    function changeHistoricalPage(delta) {
+        historicalState.page += delta;
+        loadHistoricalData();
+    }
+    
+    function changeHistoricalPageSize() {
+        historicalState.pageSize = parseInt(document.getElementById('historical-page-size').value);
+        historicalState.page = 1; // Reset to first page when page size changes
+        loadHistoricalData();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadTables();
+        loadHistoricalDates(); 
+        loadUniverseForSearch();
+        setQuickRange('1M');
+    });
 </script>
 {% endblock %}

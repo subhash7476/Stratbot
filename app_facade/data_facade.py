@@ -3,7 +3,7 @@ Data Facade
 -----------
 Bridge for raw data access in the UI.
 """
-from core.data.duckdb_client import db_cursor
+from core.database import db_cursor
 
 class DataFacade:
     def get_tables(self):

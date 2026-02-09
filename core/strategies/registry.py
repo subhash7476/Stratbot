@@ -10,6 +10,7 @@ from core.strategies.confluence_consumer import ConfluenceConsumerStrategy
 from core.strategies.daily_regime_strategy_v2 import DailyRegimeStrategyV2
 from core.strategies.regime_adaptive import RegimeAdaptiveStrategy
 from core.strategies.premium_tp_sl import PremiumTpSlStrategy
+from core.strategies.pixityAIMetaStrategy import PixityAIMetaStrategy
 
 # symbol -> Strategy Class
 STRATEGY_MAP: Dict[str, Type[BaseStrategy]] = {
@@ -17,7 +18,8 @@ STRATEGY_MAP: Dict[str, Type[BaseStrategy]] = {
     "confluence_consumer": ConfluenceConsumerStrategy,
     "regime_v2": DailyRegimeStrategyV2,
     "regime_adaptive": RegimeAdaptiveStrategy,
-    "premium_tp_sl": PremiumTpSlStrategy
+    "premium_tp_sl": PremiumTpSlStrategy,
+    "pixityAI_meta": PixityAIMetaStrategy
 }
 
 def create_strategy(strategy_id: str, instance_id: str, config: Optional[Dict] = None) -> Optional[BaseStrategy]:

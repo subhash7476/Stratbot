@@ -3,10 +3,12 @@ Standardized Event Contracts
 ---------------------------
 Frozen dataclasses for system-wide communication.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Any
+
 
 class SignalType(Enum):
     BUY = "BUY"
@@ -14,16 +16,19 @@ class SignalType(Enum):
     EXIT = "EXIT"
     NEUTRAL = "NEUTRAL"
 
+
 class TradeStatus(Enum):
     PENDING = "PENDING"
     FILLED = "FILLED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
 
+
 class OrderType(Enum):
     MARKET = "MARKET"
     LIMIT = "LIMIT"
     STOP_LOSS = "STOP_LOSS"
+
 
 class OrderStatus(Enum):
     CREATED = "CREATED"
@@ -32,6 +37,7 @@ class OrderStatus(Enum):
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
+
 
 @dataclass(frozen=True)
 class OHLCVBar:
@@ -43,6 +49,7 @@ class OHLCVBar:
     close: float
     volume: float
 
+
 @dataclass(frozen=True)
 class SignalEvent:
     strategy_id: str
@@ -51,6 +58,7 @@ class SignalEvent:
     signal_type: SignalType
     confidence: float
     metadata: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass(frozen=True)
 class TradeEvent:
@@ -65,6 +73,7 @@ class TradeEvent:
     fees: float = 0.0
     broker_reference_id: Optional[str] = None
     rejection_reason: Optional[str] = None
+
 
 @dataclass(frozen=True)
 class OrderEvent:

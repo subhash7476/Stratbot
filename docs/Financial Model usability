@@ -1,0 +1,90 @@
+ HIGH PRIORITY — Directly Address Your Pain Points
+1. Kalman Filter (5.1, 5.2) — Replace the Anti-Predictive Meta-Model
+Problem it solves:
+
+Your meta-model is anti-predictive on equities
+Raw events have edge, but need quality filtering
+Implementation:
+
+
+# Instead of meta-model prediction, use Kalman filter as signal quality score
+kalman_state = KalmanFilter(dim_x=2, dim_z=1)  # Track price + velocity
+kalman_state.update(recent_prices)
+
+# Only take trades where Kalman trend aligns with event direction
+if event.direction == "LONG" and kalman_state.x[1] > 0:  # positive velocity
+    confidence_score = abs(kalman_state.x[1]) / kalman_state.P[1,1]  # signal/noise
+    if confidence_score > threshold:
+        execute_trade()
+Expected Impact:
+
+Filters out counter-trend events during noise
+Could push WR from 53% → 60%+
+Works on 15m timeframe (your sweet spot)
+2. Volatility Tracking (5.3) — Dynamic Risk & Fee Management
+Problem it solves:
+
+Fees eat 50-60% of gross edge
+Need to skip low-edge environments
+Implementation:
+
+
+# Use Kalman + GARCH to estimate current volatility regime
+vol_estimate = garch_kalman_filter(symbol_prices)
+
+# Skip trades when vol is too low (tight ranges = fee trap)
+min_volatility_for_trade = 1.5 * avg_fee_impact  # e.g., 0.75% 
+
+if vol_estimate < min_volatility_for_trade:
+    skip_trade("Insufficient vol to overcome fees")
+Expected Impact:
+
+Reduces total trades by ~30%
+Keeps only high-edge environments
+Could improve net PnL by 20-30%
+3. Ornstein-Uhlenbeck (6.1) — Better Symbol Selection
+Problem it solves:
+
+Only 2/10 symbols are consistently profitable
+Need objective criteria for symbol selection
+Implementation:
+
+
+# Estimate OU parameters for each candidate symbol
+for symbol in universe:
+    theta, mu, sigma = estimate_OU_params(symbol_history)
+    
+    # Mean-reversion strength score
+    reversion_strength = theta  # Higher = faster mean reversion
+    
+    # Only trade symbols with strong reversion + adequate volatility
+    if reversion_strength > 0.5 and sigma > fee_threshold:
+        approved_symbols.append(symbol)
+Expected Impact:
+
+Objective ranking of symbols for PixityAI reversion events
+Could identify 3-4 more profitable symbols beyond Tata Power/Bajaj Finance
+Validates which stocks suit your strategy physics
+🟡 MEDIUM PRIORITY — Risk Management
+4. Lévy Processes (1.5) — Tail Risk Modeling
+Use case: Model gap risk and circuit filter scenarios
+
+Indian equities have ±20% circuit limits
+Lévy jump-diffusion captures these fat tails better than Gaussian
+Implementation: Use NIG or Variance Gamma to estimate probability of hitting circuits, scale position size accordingly.
+
+🔴 LOW PRIORITY — Not Relevant Yet
+❌ Black-Scholes/Heston — You're trading equities, not options
+❌ MVO Portfolio — Only 2 symbols currently; premature
+❌ Volatility Smile — Options-specific calibration
+
+📋 Recommended Implementation Order
+Start with Kalman Filter (5.1) — Quick win, replaces broken meta-model
+Add Volatility Tracking (5.3) — Protects from fee erosion
+Run OU Analysis (6.1) — Expand symbol universe scientifically
+Consider Lévy (1.5) — After above are stable, add tail risk layer
+Would you like me to:
+
+Implement Kalman filter as a signal quality overlay for PixityAI?
+Add GARCH volatility regime filter to skip low-edge periods?
+Run OU parameter estimation on your NSE equity universe to find new symbols?

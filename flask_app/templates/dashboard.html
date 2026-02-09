@@ -185,32 +185,190 @@
     const chart = new ApexCharts(document.querySelector("#equity-chart"), options);
     chart.render();
 
-    async function updateStats() {
-        try {
-            const response = await fetch('{{ url_for("dashboard.stats") }}');
-            const data = await response.json();
-            
+    // Set up EventSource for telemetry streaming
+    let eventSource = null;
+    let lastUpdate = 0;
+
+    function connectTelemetryStream() {
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        eventSource = new EventSource('/api/telemetry/stream');
+        
+        eventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                const msgType = data.type;
+                
+                // Rate limit UI updates (max once per second)
+                const now = Date.now();
+                if (now - lastUpdate < 1000) {
+                    return;
+                }
+                lastUpdate = now;
+
+                if (msgType === 'telemetry.metrics') {
+                    updateMetrics(data.data);
+                } else if (msgType === 'telemetry.positions') {
+                    updatePositions(data.data);
+                } else if (msgType === 'telemetry.logs') {
+                    addLogEntry(data.data);
+                } else if (msgType === 'telemetry.health') {
+                    updateHealthStatus(data.data);
+                }
+            } catch (error) {
+                console.error('Error processing telemetry message:', error);
+            }
+        };
+
+        eventSource.onerror = function(event) {
+            console.warn('Telemetry stream error, will attempt to reconnect...');
+            updateConnectionStatus(false);
+        };
+
+        eventSource.onopen = function(event) {
+            console.log('Connected to telemetry stream');
+            updateConnectionStatus(true);
+        };
+    }
+
+    function updateMetrics(data) {
+        if (data.active_strategies !== undefined) {
             document.getElementById('active-strategies').textContent = data.active_strategies;
+        }
+        if (data.trades_today !== undefined) {
             document.getElementById('trades-today').textContent = data.trades_today;
-            document.getElementById('portfolio-value').textContent = '₹' + data.portfolio_value.toLocaleString();
-            
-            // Update connection status
-            const light = document.getElementById('status-light');
-            const pulse = document.getElementById('status-pulse');
-            const text = document.getElementById('status-text');
-            
+        }
+        if (data.portfolio_value !== undefined) {
+            document.getElementById('portfolio-value').textContent = '₹' + parseFloat(data.portfolio_value || 0).toLocaleString();
+        }
+        if (data.drawdown !== undefined) {
+            document.getElementById('drawdown').textContent = (parseFloat(data.drawdown || 0) * 100).toFixed(2) + '%';
+        }
+    }
+
+    function updatePositions(data) {
+        const container = document.getElementById('positions-container');
+        if (!container) return;
+
+        if (!data || Object.keys(data).length === 0) {
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-12 text-slate-500">
+                    <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                        <i class="fas fa-folder-open text-2xl"></i>
+                    </div>
+                    <p class="italic text-sm">No active positions found.</p>
+                </div>
+            `;
+            document.getElementById('positions-count').textContent = '0 Open';
+            return;
+        }
+
+        let html = '';
+        let count = 0;
+        for (const [symbol, position] of Object.entries(data)) {
+            if (position.quantity && Math.abs(position.quantity) > 0) {
+                count++;
+                const isLong = position.quantity > 0;
+                html += `
+                    <div class="glass p-4 rounded-xl border ${isLong ? 'border-emerald-500/20' : 'border-rose-500/20'}">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="font-bold text-white">${symbol}</span>
+                                    <span class="text-xs px-2 py-1 rounded-full ${isLong ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">
+                                        ${isLong ? 'LONG' : 'SHORT'}
+                                    </span>
+                                </div>
+                                <div class="text-sm text-slate-400 mt-1">
+                                    Qty: ${Math.abs(position.quantity)} | Avg: ₹${(position.avg_entry_price || 0).toFixed(2)}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="font-bold text-white">₹${(position.quantity * position.avg_entry_price || 0).toFixed(2)}</div>
+                                <div class="text-xs ${position.pnl_pct > 0 ? 'text-emerald-400' : 'text-rose-400'}">
+                                    ${(position.pnl_pct || 0).toFixed(2)}%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        container.innerHTML = html;
+        document.getElementById('positions-count').textContent = `${count} Open`;
+    }
+
+    function addLogEntry(data) {
+        const container = document.getElementById('signals-container');
+        if (!container) return;
+
+        // Create log entry element
+        const timestamp = new Date(data.timestamp || Date.now()).toLocaleTimeString();
+        const level = data.level || 'INFO';
+        const message = data.message || 'Log message';
+
+        const logClass = level.toLowerCase() === 'error' ? 'text-rose-400' : 
+                         level.toLowerCase() === 'warning' ? 'text-amber-400' : 'text-slate-300';
+
+        const logElement = document.createElement('div');
+        logElement.className = 'glass p-3 rounded-lg border border-slate-700/50';
+        logElement.innerHTML = `
+            <div class="flex justify-between items-start">
+                <div class="flex-1">
+                    <span class="text-xs font-mono ${logClass}">${level}</span>
+                    <p class="text-sm text-slate-300 mt-1">${message}</p>
+                </div>
+                <span class="text-xs text-slate-500">${timestamp}</span>
+            </div>
+        `;
+
+        // Add to container (prepend to show newest first)
+        container.insertBefore(logElement, container.firstChild);
+
+        // Limit to 10 entries
+        if (container.children.length > 10) {
+            container.removeChild(container.lastChild);
+        }
+    }
+
+    function updateHealthStatus(data) {
+        // Update connection status based on health data
+        if (data && data.status) {
+            updateConnectionStatus(data.status === 'healthy');
+        }
+    }
+
+    function updateConnectionStatus(isConnected) {
+        const light = document.getElementById('status-light');
+        const pulse = document.getElementById('status-pulse');
+        const text = document.getElementById('status-text');
+
+        if (isConnected) {
             light.classList.replace('bg-slate-500', 'bg-emerald-500');
             pulse.classList.replace('bg-slate-500', 'bg-emerald-500');
             text.textContent = 'Live Connected';
             text.classList.replace('text-slate-300', 'text-emerald-400');
-            
-        } catch (error) {
-            console.error('Failed to fetch stats:', error);
+        } else {
+            light.classList.replace('bg-emerald-500', 'bg-slate-500');
+            pulse.classList.replace('bg-emerald-500', 'bg-slate-500');
+            text.textContent = 'Connecting...';
+            text.classList.replace('text-emerald-400', 'text-slate-300');
         }
     }
 
-    // Refresh every 5 seconds
-    setInterval(updateStats, 5000);
-    updateStats();
+    // Start the telemetry stream when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        connectTelemetryStream();
+    });
+
+    // Clean up when page unloads
+    window.addEventListener('beforeunload', function() {
+        if (eventSource) {
+            eventSource.close();
+        }
+    });
 </script>
 {% endblock %}

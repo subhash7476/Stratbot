@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, session
+from flask import Blueprint, render_template, redirect, url_for, request, flash, session, current_app
 from core.auth.auth_service import AuthService
 
 auth_bp = Blueprint('auth', __name__)
@@ -9,8 +9,10 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        auth = AuthService()
-        user = auth.authenticate(username, password)
+        # Access db_manager from current_app
+        db_manager = getattr(current_app, 'db_manager', None)
+        auth = AuthService(db_manager=db_manager)
+        user = auth.authenticate(str(username), str(password))
         
         if user:
             session['username'] = user.username

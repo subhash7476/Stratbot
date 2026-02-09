@@ -11,8 +11,7 @@ sys.path.insert(0, str(ROOT))
 from core.clock import ReplayClock
 from core.runner import TradingRunner, RunnerConfig
 from core.events import OHLCVBar, SignalType, TradeStatus
-from core.data.market_data_provider import MarketDataProvider
-from core.data.analytics_provider import AnalyticsProvider
+from core.database.providers import MarketDataProvider, AnalyticsProvider
 from core.execution.handler import ExecutionHandler, ExecutionConfig, ExecutionMode
 from core.execution.position_tracker import PositionTracker
 from core.brokers.paper_broker import PaperBroker
@@ -32,10 +31,10 @@ class MockDataProvider(MarketDataProvider):
     def get_progress(self, symbol): return (self.count, 5)
 
 class MockAnalyticsProvider(AnalyticsProvider):
-    def get_latest_snapshot(self, symbol):
+    def get_latest_snapshot(self, symbol, as_of=None):
         from core.analytics.models import ConfluenceInsight, Bias, ConfluenceSignal
         return ConfluenceInsight(datetime.now(), symbol, Bias.BULLISH, 0.7, [], ConfluenceSignal.BUY)
-    def get_market_regime(self, symbol):
+    def get_market_regime(self, symbol, as_of=None):
         return {"regime": "BULL_TREND"}
 
 def run_smoke_test():

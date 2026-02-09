@@ -92,6 +92,11 @@ Implemented actual REST/WebSocket connectivity for Upstox V2, including OAuth2 f
 -   **Key Achievements**: Real-time order placement, position reconciliation, `upstox_auth.py`.
 -   **Key Files**: `scripts/upstox_auth.py`, `core/brokers/upstox_adapter.py`.
 
+### Phase 11: ZMQ Event Backbone
+Implemented ZeroMQ layer for real-time, low-latency event distribution across system components.
+-   **Key Achievements**: Process decoupling, market data distribution via PUB/SUB, telemetry streaming, Flask ZMQ→SSE bridge.
+-   **Key Files**: `core/zmq/zmq_publisher.py`, `core/zmq/zmq_subscriber.py`, `core/zmq/telemetry_publisher.py`, `flask_app/zmq_bridge.py`.
+
 ---
 
 ## 🔒 4. Architectural & Security Guarantees

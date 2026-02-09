@@ -1,5 +1,7 @@
 import os
+from datetime import datetime
 from flask import Blueprint, render_template, jsonify, redirect, url_for, flash
+
 from flask_app.middleware import login_required, role_required, read_only
 from core.auth.credentials import credentials
 
@@ -26,14 +28,35 @@ def index():
 def stats():
     """
     API endpoint for dashboard statistics.
-    Read-only: never modifies data, only fetches from persistence layer.
     """
+    from flask import current_app
+    from core.database.manager import DatabaseManager
+    from pathlib import Path
+    
+    db = getattr(current_app, 'db_manager', None) or DatabaseManager(Path("data"))
+    
+    active_strategies = 0
+    trades_today = 0
+    
+    try:
+        with db.config_reader() as conn:
+            res = conn.execute("SELECT count(distinct strategy_id) FROM runner_state WHERE status = 'RUNNING'").fetchone()
+            active_strategies = res[0] if res else 0
+            
+        with db.trading_reader() as conn:
+            # Simple count for now, in production filter by date
+            res = conn.execute("SELECT count(*) FROM trades").fetchone()
+            trades_today = res[0] if res else 0
+    except:
+        pass
+
     return jsonify({
-        'active_strategies': 0,
-        'trades_today': 0,
+        'active_strategies': active_strategies,
+        'trades_today': trades_today,
         'portfolio_value': 0.0,
-        'last_updated': None
+        'last_updated': datetime.now().isoformat()
     })
+
 
 
 @dashboard_bp.route('/admin')

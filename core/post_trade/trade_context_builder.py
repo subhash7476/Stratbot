@@ -4,7 +4,7 @@ Trade Context Builder
 Assembles TradeTruth objects from historical events.
 """
 from core.events import TradeEvent
-from core.data.analytics_provider import AnalyticsProvider
+from core.database.providers import AnalyticsProvider
 from core.post_trade.trade_truth_model import TradeTruth
 
 class TradeContextBuilder:

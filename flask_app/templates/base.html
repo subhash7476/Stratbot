@@ -97,7 +97,7 @@
             </div>
         </header>
 
-        <main class="p-8 flex-1">
+        <main class="p-8 flex-1 pb-24">
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
@@ -112,10 +112,374 @@
             {% block content %}{% endblock %}
         </main>
 
-        <footer class="p-8 border-t border-slate-800 text-center">
-            <p class="text-slate-500 text-xs">© 2026 opencode Trading Engine. All rights reserved.</p>
-        </footer>
+        <!-- Status Bar -->
+        <div id="status-bar" class="fixed bottom-0 left-64 right-0 h-16 bg-[#1e293b] border-t border-slate-700 flex items-center px-6 z-50">
+            <!-- Market Status Indicator -->
+            <div class="flex items-center mr-6">
+                <div id="market-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></div>
+                <span id="market-status-label" class="text-xs text-slate-300">Market Open</span>
+            </div>
+            
+            <!-- Broker/WS Status Indicator -->
+            <div class="flex items-center mr-6">
+                <div id="broker-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></div>
+                <span id="broker-status-label" class="text-xs text-slate-300">Connected</span>
+            </div>
+            
+            <!-- DB Status Indicator -->
+            <div class="flex items-center mr-6">
+                <div id="db-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></div>
+                <span id="db-status-label" class="text-xs text-slate-300">Connected</span>
+            </div>
+            
+            <!-- Error Count Badge -->
+            <div class="flex items-center mr-6">
+                <span class="text-xs text-slate-400 mr-1">Errors:</span>
+                <span id="error-count-badge" class="text-xs font-bold text-red-400 bg-red-900/50 px-2 py-1 rounded">0</span>
+            </div>
+            
+            <!-- Spacer -->
+            <div class="flex-1"></div>
+            
+            <!-- Logs Toggle Button -->
+            <button id="logs-toggle" class="flex items-center text-xs text-slate-300 hover:text-slate-100 transition-colors">
+                <span class="mr-2">Logs</span>
+                <i id="logs-chevron" class="fas fa-chevron-up"></i>
+            </button>
+        </div>
+        
+        <!-- Log Viewer Drawer -->
+        <div id="log-drawer" class="fixed bottom-16 left-64 right-0 bg-[#0f172a] border-t border-slate-700 z-40 transform translate-y-full transition-transform duration-300 ease-in-out max-h-96" style="height: 380px;">
+            <!-- Toolbar -->
+            <div class="p-3 bg-[#1e293b] border-b border-slate-700 flex items-center space-x-3">
+                <select id="level-filter" class="bg-slate-800 text-slate-200 text-xs px-2 py-1 rounded border border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="">All Levels</option>
+                    <option value="DEBUG">Debug</option>
+                    <option value="INFO">Info</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="ERROR">Error</option>
+                </select>
+                
+                <select id="source-filter" class="bg-slate-800 text-slate-200 text-xs px-2 py-1 rounded border border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="">All Sources</option>
+                </select>
+                
+                <button id="pause-btn" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded border border-slate-700">
+                    Pause
+                </button>
+                
+                <button id="auto-scroll-btn" class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded">
+                    Auto Scroll ON
+                </button>
+                
+                <button id="refresh-btn" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded border border-slate-700">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            
+            <!-- Log Content Area -->
+            <div id="log-content" class="p-3 font-mono text-xs overflow-y-auto max-h-80" style="max-height: 320px;">
+                <!-- Log entries will be appended here -->
+            </div>
+        </div>
     </div>
+
+    <script>
+        // State variables
+        let isLogDrawerOpen = false;
+        let isPaused = false;
+        let isAutoScroll = true;
+        let logEntriesCount = 0;
+        let eventSource = null;
+        
+        // DOM Elements
+        const statusBar = document.getElementById('status-bar');
+        const logDrawer = document.getElementById('log-drawer');
+        const logsToggle = document.getElementById('logs-toggle');
+        const logsChevron = document.getElementById('logs-chevron');
+        const logContent = document.getElementById('log-content');
+        const levelFilter = document.getElementById('level-filter');
+        const sourceFilter = document.getElementById('source-filter');
+        const pauseBtn = document.getElementById('pause-btn');
+        const autoScrollBtn = document.getElementById('auto-scroll-btn');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const errorCountBadge = document.getElementById('error-count-badge');
+        
+        // Initialize the log viewer
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load available log files into source filter
+            loadAvailableLogFiles();
+            
+            // Start polling for status updates
+            pollStatusBar();
+            
+            // Connect to SSE for live logs
+            connectLogSSE();
+            
+            // Set up event listeners
+            setupEventListeners();
+        });
+        
+        function setupEventListeners() {
+            // Toggle log drawer
+            logsToggle.addEventListener('click', toggleLogDrawer);
+            
+            // Filter changes
+            levelFilter.addEventListener('change', refreshLogs);
+            sourceFilter.addEventListener('change', refreshLogs);
+            
+            // Control buttons
+            pauseBtn.addEventListener('click', togglePause);
+            autoScrollBtn.addEventListener('click', toggleAutoScroll);
+            refreshBtn.addEventListener('click', refreshLogs);
+        }
+        
+        function toggleLogDrawer() {
+            isLogDrawerOpen = !isLogDrawerOpen;
+            
+            if (isLogDrawerOpen) {
+                logDrawer.classList.remove('translate-y-full');
+                logDrawer.classList.add('translate-y-0');
+                logsChevron.classList.remove('fa-chevron-up');
+                logsChevron.classList.add('fa-chevron-down');
+                
+                // Refresh logs when opening drawer
+                refreshLogs();
+            } else {
+                logDrawer.classList.remove('translate-y-0');
+                logDrawer.classList.add('translate-y-full');
+                logsChevron.classList.remove('fa-chevron-down');
+                logsChevron.classList.add('fa-chevron-up');
+            }
+        }
+        
+        function togglePause() {
+            isPaused = !isPaused;
+            pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+            pauseBtn.classList.toggle('bg-blue-600', isPaused);
+            pauseBtn.classList.toggle('bg-slate-800', !isPaused);
+        }
+        
+        function toggleAutoScroll() {
+            isAutoScroll = !isAutoScroll;
+            autoScrollBtn.textContent = isAutoScroll ? 'Auto Scroll ON' : 'Auto Scroll OFF';
+            autoScrollBtn.classList.toggle('bg-blue-600', isAutoScroll);
+            autoScrollBtn.classList.toggle('bg-slate-800', !isAutoScroll);
+        }
+        
+        function pollStatusBar() {
+            // Fetch status info and update indicators
+            fetch('/ops/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update market status
+                        const marketStatus = data.metrics?.market_status || 'open'; // default assumption
+                        const marketDot = document.getElementById('market-status-dot');
+                        const marketLabel = document.getElementById('market-status-label');
+                        
+                        if (marketStatus.toLowerCase().includes('open')) {
+                            marketDot.className = 'w-2 h-2 rounded-full bg-emerald-500 mr-2';
+                            marketLabel.textContent = 'Market Open';
+                        } else {
+                            marketDot.className = 'w-2 h-2 rounded-full bg-rose-500 mr-2';
+                            marketLabel.textContent = 'Market Closed';
+                        }
+                        
+                        // Update broker status
+                        const brokerConnected = data.health?.broker_connected || false;
+                        const brokerDot = document.getElementById('broker-status-dot');
+                        const brokerLabel = document.getElementById('broker-status-label');
+                        
+                        if (brokerConnected) {
+                            brokerDot.className = 'w-2 h-2 rounded-full bg-emerald-500 mr-2';
+                            brokerLabel.textContent = 'Connected';
+                        } else {
+                            brokerDot.className = 'w-2 h-2 rounded-full bg-rose-500 mr-2';
+                            brokerLabel.textContent = 'Disconnected';
+                        }
+                        
+                        // Update DB status
+                        const dbConnected = data.health?.db_connected || false;
+                        const dbDot = document.getElementById('db-status-dot');
+                        const dbLabel = document.getElementById('db-status-label');
+                        
+                        if (dbConnected) {
+                            dbDot.className = 'w-2 h-2 rounded-full bg-emerald-500 mr-2';
+                            dbLabel.textContent = 'Connected';
+                        } else {
+                            dbDot.className = 'w-2 h-2 rounded-full bg-rose-500 mr-2';
+                            dbLabel.textContent = 'Disconnected';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                });
+            
+            // Fetch error count
+            fetch('/ops/api/error-count')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        errorCountBadge.textContent = data.error_count;
+                        // Update badge color based on error count
+                        errorCountBadge.className = 'text-xs font-bold text-red-400 bg-red-900/50 px-2 py-1 rounded';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching error count:', error);
+                });
+            
+            // Poll again in 15 seconds
+            setTimeout(pollStatusBar, 15000);
+        }
+        
+        function refreshLogs() {
+            if (isPaused) return;
+            
+            const selectedFile = sourceFilter.value || 'flask_app.log'; // default log file
+            const selectedLevel = levelFilter.value;
+            
+            fetch(`/ops/api/logs?file=${selectedFile}&level=${selectedLevel}&lines=300`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Clear current logs
+                        logContent.innerHTML = '';
+                        logEntriesCount = 0;
+                        
+                        // Add new log entries
+                        data.entries.forEach(entry => {
+                            appendLogEntry(entry);
+                        });
+                        
+                        // Scroll to bottom if auto-scroll is enabled
+                        if (isAutoScroll) {
+                            logContent.scrollTop = logContent.scrollHeight;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error refreshing logs:', error);
+                });
+        }
+        
+        function connectLogSSE() {
+            // Close existing connection if any
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            // Connect to SSE endpoint
+            eventSource = new EventSource('/api/telemetry/stream');
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Check if this is a log message
+                    if (data.type && data.type.startsWith('telemetry.logs.')) {
+                        // Apply filters before adding to display
+                        const selectedLevel = levelFilter.value;
+                        const selectedSource = sourceFilter.value;
+                        
+                        // Filter by level if specified
+                        if (selectedLevel && data.level !== selectedLevel) {
+                            return;
+                        }
+                        
+                        // Add to log display if not paused
+                        if (!isPaused) {
+                            appendLogEntry({
+                                timestamp: new Date().toISOString(),
+                                source: data.source || 'telemetry',
+                                level: data.level || 'INFO',
+                                message: data.message || data.payload
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error processing SSE message:', e);
+                }
+            };
+            
+            eventSource.onerror = function(event) {
+                console.error('SSE connection error:', event);
+            };
+        }
+        
+        function appendLogEntry(entry) {
+            // Cap the number of displayed entries to 500
+            if (logEntriesCount >= 500) {
+                // Remove the first child element
+                if (logContent.firstChild) {
+                    logContent.removeChild(logContent.firstChild);
+                } else {
+                    // If somehow there are no children but count is high, reset counter
+                    logEntriesCount = 0;
+                }
+            } else {
+                logEntriesCount++;
+            }
+            
+            // Create log entry element
+            const logElement = document.createElement('div');
+            logElement.className = `py-1 border-b border-slate-800 log-${entry.level}`;
+            
+            // Format timestamp
+            const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+            
+            // Add content with appropriate styling based on log level
+            logElement.innerHTML = `
+                <span class="text-slate-500">${timestamp}</span>
+                <span class="mx-2 text-slate-600">|</span>
+                <span class="text-cyan-400">${entry.source}</span>
+                <span class="mx-2 text-slate-600">|</span>
+                <span class="log-${entry.level}">${entry.level}</span>
+                <span class="mx-2 text-slate-600">|</span>
+                <span>${entry.message}</span>
+            `;
+            
+            // Add to log content
+            logContent.appendChild(logElement);
+            
+            // Scroll to bottom if auto-scroll is enabled
+            if (isAutoScroll) {
+                logContent.scrollTop = logContent.scrollHeight;
+            }
+        }
+        
+        function loadAvailableLogFiles() {
+            fetch('/ops/api/log-files')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Clear existing options except the first one (placeholder)
+                        sourceFilter.innerHTML = '<option value="">All Sources</option>';
+                        
+                        // Add log files as options
+                        data.log_files.forEach(file => {
+                            const option = document.createElement('option');
+                            option.value = file;
+                            option.textContent = file.replace('.log', '');
+                            sourceFilter.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading log files:', error);
+                });
+        }
+    </script>
+    
+    <style>
+        .log-ERROR { color: #ef4444; } /* red-500 */
+        .log-WARNING { color: #f59e0b; } /* amber-500 */
+        .log-INFO { color: #94a3b8; } /* slate-400 */
+        .log-DEBUG { color: #64748b; } /* slate-500 */
+        .pb-24 { padding-bottom: 6rem; } /* Add padding to prevent content from hiding behind status bar */
+    </style>
 
     {% block scripts %}{% endblock %}
 </body>

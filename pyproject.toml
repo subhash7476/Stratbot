@@ -15,7 +15,8 @@ dependencies = [
     "pytz",
     "python-dotenv",
     "websockets",
-    "protobuf"
+    "protobuf",
+    "pyzmq"
 ]
 
 [tool.pytest.ini_options]

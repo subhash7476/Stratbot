@@ -1,0 +1,22 @@
+{
+    "strategy_id": "pixityAI_meta",
+    "lookback": 100,
+    "swing_period": 5,
+    "reversion_k": 2.0,
+    "sl_mult": 1.0,
+    "tp_mult": 2.0,
+    "time_stop_bars": 12,
+    "bar_minutes": 15,
+    "long_threshold": 0.45,
+    "short_threshold": 0.45,
+    "cooldown_bars": 3,
+    "risk_per_trade": 500.0,
+    "max_daily_trades": 10,
+    "skip_meta_model": true,
+    "preferred_timeframe": "15m",
+    "symbols": [
+        "NSE_EQ|INE155A01022",
+        "NSE_EQ|INE118H01025"
+    ],
+    "notes": "Meta-model is anti-predictive on equities. Raw event generation at 15m has edge. TataPwr and BajajFin are walk-forward validated profitable (Oct24-Dec25)."
+}

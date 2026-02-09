@@ -6,8 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.data.duckdb_client import db_cursor
-from core.data.schema import BOOTSTRAP_STATEMENTS
+from core.database import db_cursor, BOOTSTRAP_STATEMENTS
 
 # Hardening tweak: Configurable path with environment variable
 DB_PATH = os.environ.get("TRADING_DB_PATH", "data/trading_bot.duckdb")

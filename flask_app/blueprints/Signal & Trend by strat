@@ -1,0 +1,97 @@
+//@version=5
+indicator("Signals & Trend Score Clone", overlay=true, max_labels_count=500)
+
+// ==========================================
+// INPUTS (Mapped from your screenshots)
+// ==========================================
+src = input.source(close, "Source")
+maType = input.string("EMA", "Moving Average Type", options=["EMA", "SMA"])
+maLength = input.int(17, "Moving Average Length")
+atrPeriod = input.int(14, "ATR Period")
+atrMult = input.float(1.0, "ATR Multiplier")
+showSignals = input.bool(true, "Show Buy/Sell Signals?")
+trailingOn = input.bool(true, "Trailing On/Off?")
+
+// MTF Inputs
+tf1 = input.timeframe("5", "Timeframe 1")
+tf2 = input.timeframe("15", "Timeframe 2")
+tf3 = input.timeframe("60", "Timeframe 3")
+tf4 = input.timeframe("D", "Timeframe 4")
+
+// Supertrend / ADX / RSI Inputs (Screenshot 3)
+stFactor = input.float(3.0, "Supertrend Factor")
+stPeriod = input.int(10, "Supertrend ATR Period")
+adxLen = input.int(14, "ADX Length")
+adxThreshold = input.int(23, "ADX Threshold")
+rsiLen = input.int(14, "RSI Length")
+rsiBull = input.int(60, "RSI Bullish Threshold")
+rsiBear = input.int(40, "RSI Bearish Threshold")
+
+// Colors
+colorUp = input.color(color.new(#4caf50, 50), "Color Up")
+colorDown = input.color(color.new(#f44336, 50), "Color Down")
+
+// ==========================================
+// CALCULATIONS
+// ==========================================
+// 1. Moving Average
+ma = maType == "EMA" ? ta.ema(src, maLength) : ta.sma(src, maLength)
+
+// 2. ATR Trailing Stop (The Cloud logic)
+atr = ta.atr(atrPeriod)
+var float trailStop = na
+longCondition = ta.crossover(src, ma)
+shortCondition = ta.crossunder(src, ma)
+
+float loss = atr * atrMult
+trailStop := src > nz(trailStop[1]) and src[1] > nz(trailStop[1]) ? math.max(nz(trailStop[1]), src - loss) : 
+             src < nz(trailStop[1]) and src[1] < nz(trailStop[1]) ? math.min(nz(trailStop[1]), src + loss) : 
+             src > nz(trailStop[1]) ? src - loss : src + loss
+
+// 3. Supertrend, ADX, and RSI
+[stLine, stDir] = ta.supertrend(stFactor, stPeriod)
+rsiVal = ta.rsi(src, rsiLen)
+[plusDI, minusDI, adxVal] = ta.adx(adxLen)
+
+// ==========================================
+// SIGNAL LOGIC
+// ==========================================
+bool isBullish = src > trailStop and rsiVal > rsiBull and adxVal > adxThreshold
+bool isBearish = src < trailStop and rsiVal < rsiBear and adxVal > adxThreshold
+
+// Trigger signals on first instance of confluence
+buySig = isBullish and not isBullish[1]
+sellSig = isBearish and not isBearish[1]
+
+// ==========================================
+// VISUALS
+// ==========================================
+// Plot the cloud
+maPlot = plot(ma, color=color.new(color.gray, 100), title="EMA Baseline")
+trailPlot = plot(trailStop, color=color.new(color.gray, 100), title="Trailing Stop")
+fillColor = src > trailStop ? colorUp : colorDown
+fill(maPlot, trailPlot, fillColor, title="Trend Cloud")
+
+// Plot Buy/Sell Labels
+plotshape(showSignals ? buySig : na, title="Buy Label", style=shape.labelup, location=location.belowbar, color=color.green, text="BUY", textcolor=color.white, size=size.small)
+plotshape(showSignals ? sellSig : na, title="Sell Label", style=shape.labeldown, location=location.abovebar, color=color.red, text="SELL", textcolor=color.white, size=size.small)
+
+// ==========================================
+// DASHBOARD (Bottom Right Table)
+// ==========================================
+var table trendTable = table.new(position.bottom_right, 2, 5, border_width=1)
+if barstate.islast
+    table.cell(trendTable, 0, 0, "Trend", bgcolor=color.black, text_color=color.white)
+    table.cell(trendTable, 1, 0, "Score", bgcolor=color.black, text_color=color.white)
+    
+    // Simple Score calculation logic based on Price vs MA across timeframes
+    f_get_trend(tf) =>
+        request.security(syminfo.tickerid, tf, close > ta.ema(close, 17))
+
+    t1 = f_get_trend(tf1)
+    t2 = f_get_trend(tf2)
+    t3 = f_get_trend(tf3)
+    t4 = f_get_trend(tf4)
+    
+    table.cell(trendTable, 0, 1, "Bullish", bgcolor=t2 ? color.green : color.gray)
+    table.cell(trendTable, 1, 1, "⭐", bgcolor=t2 ? color.green : color.gray)

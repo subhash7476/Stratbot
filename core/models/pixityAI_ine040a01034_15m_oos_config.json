@@ -1,0 +1,10 @@
+{
+    "symbol": "NSE_EQ|INE040A01034",
+    "timeframe": "15m",
+    "bar_minutes": 15,
+    "model_path": "core/models/pixityAI_ine040a01034_15m_oos.joblib",
+    "sl_mult": 1.0,
+    "tp_mult": 2.0,
+    "time_stop_bars": 12,
+    "cooldown_bars": 3
+}

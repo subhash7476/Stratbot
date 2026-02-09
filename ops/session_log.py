@@ -23,7 +23,7 @@ class SessionLogger:
         date_str = datetime.now().strftime("%Y%m%d")
         self._current_file = self.logs_dir / f"session_{date_str}.md"
         
-        with open(self._current_file, "a") as f:
+        with open(self._current_file, "a", encoding="utf-8") as f:
             f.write(f"\n# 🚀 Trading Session: {datetime.now().isoformat()}\n")
             f.write(f"**Mode**: {metadata.get('mode')}\n")
             f.write(f"**Symbols**: {metadata.get('symbols')}\n")
@@ -31,9 +31,10 @@ class SessionLogger:
 
     def log_event(self, section: str, message: str):
         if not self._current_file: return
-        with open(self._current_file, "a") as f:
+        with open(self._current_file, "a", encoding="utf-8") as f:
             f.write(f"### {section}\n")
             f.write(f"- [{datetime.now().time()}] {message}\n\n")
+
 
     def close_session(self):
         self._current_file = None

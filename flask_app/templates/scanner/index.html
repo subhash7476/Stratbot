@@ -2,106 +2,370 @@
 
 {% block title %}Live Scanner - opencode{% endblock %}
 
-{% block breadcrumb %}Trading / Live Scanner{% endblock %}
+{% block breadcrumb %}System / Scanner{% endblock %}
+
+{% block head %}
+<style>
+    .scanner-layout {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 220px);
+        min-height: 600px;
+        position: relative;
+    }
+
+    .panel-container {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .table-scroll {
+        flex: 1;
+        overflow-y: auto;
+        border-radius: 0 0 1rem 1rem;
+    }
+
+    .symbol-drawer {
+        position: fixed;
+        bottom: 0;
+        left: 16rem;
+        right: 0;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 30;
+    }
+
+    .symbol-drawer.open {
+        max-height: 380px;
+    }
+
+    /* Status badges */
+    .status-badge {
+        padding: 0.25rem 0.6rem;
+        border-radius: 9999px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+    }
+
+    .status-RUNNING {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+    }
+
+    .status-TRIGGERED {
+        background: rgba(245, 158, 11, 0.2);
+        color: #f59e0b;
+        animation: pulse 1.5s infinite;
+    }
+
+    .status-WAITING {
+        background: rgba(107, 114, 128, 0.15);
+        color: #94a3b8;
+    }
+
+    .status-COOLDOWN {
+        background: rgba(139, 92, 246, 0.15);
+        color: #a78bfa;
+    }
+
+    .status-DISABLED {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+    }
+
+    /* Bias colors */
+    .bias-BULLISH {
+        color: #10b981;
+    }
+
+    .bias-BEARISH {
+        color: #ef4444;
+    }
+
+    .bias-NEUTRAL {
+        color: #64748b;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.6;
+        }
+    }
+
+    .table-row-clickable {
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    .table-row-clickable:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .table-row-clickable.active {
+        background: rgba(59, 130, 246, 0.1);
+        border-left: 2px solid #3b82f6;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="space-y-8">
+<div class="space-y-6">
+    <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-3xl font-bold text-white tracking-tight">Market Scanner</h1>
-            <p class="text-slate-400 mt-1">Real-time instrument scanning and signal generation.</p>
+            <h1 class="text-3xl font-bold text-white tracking-tight">Live Intelligence Scanner</h1>
+            <p class="text-slate-400 mt-1">Real-time market context and strategy execution monitoring.</p>
         </div>
-        <div class="flex items-center space-x-3">
-            <div class="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700">
-                <button class="px-4 py-2 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-500/20 transition-all">ALL</button>
-                <button class="px-4 py-2 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-colors">WATCHLIST</button>
-                <button class="px-4 py-2 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-colors">BULLISH</button>
+        <div class="flex items-center space-x-3 bg-slate-800/50 p-2 rounded-xl border border-slate-700">
+            <div class="flex items-center space-x-2 px-3 py-1 bg-emerald-500/10 rounded-lg">
+                <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                <span class="text-[10px] font-bold text-emerald-500 uppercase">Live Feed</span>
             </div>
-            <button class="w-10 h-10 glass rounded-xl flex items-center justify-center text-slate-400 hover:text-white transition-all">
-                <i class="fas fa-filter text-sm"></i>
-            </button>
+            <div class="text-[10px] text-slate-500 uppercase font-bold px-2">
+                Last Update: <span id="global-last-update">--:--:--</span>
+            </div>
         </div>
     </div>
 
-    <!-- Active Scanners Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        <!-- Mock Instrument Card -->
-        {% for symbol in ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'KOTAKBANK'] %}
-        <div class="glass p-5 rounded-2xl hover:border-blue-500/30 transition-all group cursor-pointer relative overflow-hidden">
-            <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-                <i class="fas fa-chart-line text-6xl -rotate-12"></i>
-            </div>
-            
-            <div class="flex justify-between items-start mb-4 relative z-10">
-                <div>
-                    <h3 class="text-lg font-bold text-white group-hover:text-blue-400 transition-colors">{{ symbol }}</h3>
-                    <p class="text-[10px] text-slate-500 font-bold uppercase">NSE • Equity</p>
-                </div>
-                <div class="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-bold">
-                    BULLISH
-                </div>
-            </div>
-
-            <div class="space-y-3 relative z-10">
-                <div class="flex justify-between text-xs">
-                    <span class="text-slate-500">Price</span>
-                    <span class="text-slate-200 font-mono">₹2,845.20</span>
-                </div>
-                <div class="flex justify-between text-xs">
-                    <span class="text-slate-500">RSI (14)</span>
-                    <span class="text-emerald-400 font-bold">68.5</span>
-                </div>
-                <div class="flex justify-between text-xs">
-                    <span class="text-slate-500">EMA 20/50</span>
-                    <span class="text-blue-400 font-bold">CROSSOVER</span>
+    <!-- Strategy Monitor (Full Height) -->
+    <div class="scanner-layout" id="scanner-container">
+        <div class="panel-container glass rounded-2xl h-full" id="strategy-panel">
+            <div class="p-4 border-b border-slate-700 bg-slate-800/30 flex items-center justify-between">
+                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">
+                    <i class="fas fa-radar mr-2"></i> Strategy Monitor
+                </h3>
+                <div class="flex items-center space-x-3">
+                    <select id="filter-strategy"
+                        class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500">
+                        <option value="">All Strategies</option>
+                        <option value="pixityAI_meta">PixityAI Meta</option>
+                        <option value="regime_v2">Regime V2</option>
+                        <option value="premium_tp_sl">Premium TP/SL</option>
+                    </select>
+                    <div class="flex space-x-2 border-l border-slate-700 pl-3">
+                        <span class="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded"
+                            id="scanner-active-count">0 Active</span>
+                        <span class="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded"
+                            id="scanner-triggered-count">0 Triggered</span>
+                    </div>
                 </div>
             </div>
-
-            <div class="mt-4 pt-4 border-t border-slate-700/50 flex justify-between items-center relative z-10">
-                <span class="text-[10px] text-slate-500">Updated 2s ago</span>
-                <button class="text-xs font-bold text-blue-500 hover:text-blue-400 flex items-center">
-                    Trade <i class="fas fa-chevron-right ml-1 text-[8px]"></i>
-                </button>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <!-- Scanner Performance Info -->
-    <div class="glass p-6 rounded-2xl bg-slate-800/30 border-dashed border-slate-700 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div class="flex items-center space-x-4">
-            <div class="w-12 h-12 bg-blue-600/20 rounded-full flex items-center justify-center text-blue-500">
-                <i class="fas fa-microchip animate-spin-slow"></i>
-            </div>
-            <div>
-                <h4 class="font-bold text-white">Scanner Engine Active</h4>
-                <p class="text-sm text-slate-400">Processing 250+ instruments every 1s across multiple strategies.</p>
-            </div>
-        </div>
-        <div class="flex space-x-8">
-            <div class="text-center">
-                <p class="text-2xl font-bold text-white">1.2k</p>
-                <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">TPS</p>
-            </div>
-            <div class="text-center">
-                <p class="text-2xl font-bold text-white">42ms</p>
-                <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Latency</p>
-            </div>
-            <div class="text-center">
-                <p class="text-2xl font-bold text-emerald-500">12</p>
-                <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Signals</p>
+            <div class="table-scroll">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-900/50 text-slate-500 uppercase text-[10px] font-bold sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3">Symbol</th>
+                            <th class="px-4 py-3">Strategy</th>
+                            <th class="px-4 py-3">TF</th>
+                            <th class="px-4 py-3">Bias</th>
+                            <th class="px-4 py-3 text-center">Conf</th>
+                            <th class="px-4 py-3">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scanner-body" class="divide-y divide-slate-800">
+                        <!-- Polled data -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 </div>
+</div>
 
-<style>
-    @keyframes spin-slow {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+<!-- Bottom Context Drawer -->
+<div id="symbol-drawer" class="symbol-drawer glass border-t border-slate-700 shadow-2xl">
+    <div class="p-6">
+        <div class="flex items-start justify-between mb-6">
+            <div class="flex items-center space-x-4">
+                <div id="drawer-icon"
+                    class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
+                    <i class="fas fa-chart-pie text-xl"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h2 id="drawer-title" class="text-2xl font-bold text-white tracking-tight">Select a symbol</h2>
+                        <span id="drawer-type"
+                            class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 uppercase font-bold">--</span>
+                    </div>
+                    <p id="drawer-subtitle" class="text-xs text-slate-400">View real-time intelligence and execution
+                        state.</p>
+                </div>
+            </div>
+            <button onclick="closeDrawer()" class="text-slate-500 hover:text-white transition-colors">
+                <i class="fas fa-times text-lg"></i>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Analytics Column -->
+            <div class="space-y-4">
+                <p
+                    class="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">
+                    Intelligence</p>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400">Current Bias</span>
+                    <span id="ctx-bias" class="text-sm font-bold">--</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400">Confidence</span>
+                    <span id="ctx-conf" class="text-sm font-mono text-white">--</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400">Market Regime</span>
+                    <span id="ctx-regime" class="text-xs text-blue-400">--</span>
+                </div>
+            </div>
+
+            <!-- Active Strategies Column -->
+            <div class="md:col-span-2 space-y-4">
+                <p
+                    class="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">
+                    Active Strategies</p>
+                <div id="ctx-strategies" class="grid grid-cols-2 gap-2">
+                    <!-- Dynamic -->
+                </div>
+            </div>
+
+            <!-- Recent Signal Column -->
+            <div class="space-y-4">
+                <p
+                    class="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">
+                    Recent Signals</p>
+                <div id="ctx-signals" class="space-y-2">
+                    <!-- Dynamic -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let activeSymbol = null;
+
+    // Polling Interval
+    const SCANNER_INTERVAL = 2000;
+
+    async function pollScanner() {
+        try {
+            const strategyFilter = document.getElementById('filter-strategy').value;
+            const res = await fetch('/scanner/api/scanner-state');
+            const result = await res.json();
+            if (result.success) {
+                let filteredData = result.data;
+                if (strategyFilter) {
+                    filteredData = result.data.filter(r => r.strategy_id === strategyFilter);
+                }
+
+                renderScanner(filteredData);
+
+                const triggered = filteredData.filter(r => r.status === 'TRIGGERED').length;
+                document.getElementById('scanner-active-count').textContent = `${filteredData.length} Total`;
+                document.getElementById('scanner-triggered-count').textContent = `${triggered} Triggered`;
+                updateGlobalTime();
+            }
+        } catch (e) { console.error("Scanner poll error:", e); }
     }
-    .animate-spin-slow {
-        animation: spin-slow 8s linear infinite;
+
+    function renderScanner(data) {
+        const body = document.getElementById('scanner-body');
+        body.innerHTML = data.map(row => {
+            const isActive = activeSymbol === row.symbol ? 'active' : '';
+            return `
+                <tr class="table-row-clickable ${isActive}" onclick="openDrawer('${row.symbol}')">
+                    <td class="px-4 py-3 font-bold text-white">${row.trading_symbol || row.symbol}</td>
+                    <td class="px-4 py-3 text-slate-400 font-medium">${row.strategy_id}</td>
+                    <td class="px-4 py-3 text-slate-500 font-mono">${row.timeframe}</td>
+                    <td class="px-4 py-3 font-bold bias-${row.current_bias}">${row.current_bias}</td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="w-full bg-slate-800 rounded-full h-1.5 max-w-[60px] mx-auto">
+                            <div class="bg-blue-500 h-1.5 rounded-full" style="width: ${row.confidence * 100}%"></div>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="status-badge status-${row.status}">${row.status}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
-</style>
+
+    async function openDrawer(symbol) {
+        activeSymbol = symbol;
+        const drawer = document.getElementById('symbol-drawer');
+        drawer.classList.add('open');
+
+        // Highlight active row in both tables
+        document.querySelectorAll('.table-row-clickable').forEach(el => el.classList.remove('active'));
+
+        try {
+            const res = await fetch(`/scanner/api/symbol-context/${symbol}`);
+            const result = await res.json();
+            if (result.success) {
+                const d = result.data;
+                document.getElementById('drawer-title').textContent = d.trading_symbol;
+                document.getElementById('drawer-type').textContent = d.market_type;
+
+                // Bias & Conf
+                const biasEl = document.getElementById('ctx-bias');
+                biasEl.textContent = d.latest_bias || 'NEUTRAL';
+                biasEl.className = `text-sm font-bold bias-${d.latest_bias || 'NEUTRAL'}`;
+                document.getElementById('ctx-conf').textContent = d.latest_confidence ? `${(d.latest_confidence * 100).toFixed(0)}%` : '--';
+                document.getElementById('ctx-regime').textContent = d.regime || 'UNCERTAIN';
+
+                // Strategies
+                const stratContainer = document.getElementById('ctx-strategies');
+                stratContainer.innerHTML = d.active_strategies.map(s => `
+                    <div class="bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">${s.id}</div>
+                        <div class="flex items-center justify-between">
+                            <span class="status-badge status-${s.status} scale-90 origin-left">${s.status}</span>
+                            <span class="text-[10px] font-bold bias-${s.bias}">${s.bias}</span>
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-slate-600 text-[10px]">No active strategies</p>';
+
+                // Recent Signals
+                const sigContainer = document.getElementById('ctx-signals');
+                sigContainer.innerHTML = d.recent_signals.map(s => `
+                    <div class="flex items-center justify-between text-[10px]">
+                        <span class="font-bold bias-${s.type}">${s.type}</span>
+                        <span class="text-slate-500">${new Date(s.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span class="px-1.5 py-0.5 rounded-sm bg-slate-800 text-slate-400">${s.status}</span>
+                    </div>
+                `).join('') || '<p class="text-slate-600 text-[10px]">No recent signals</p>';
+            }
+        } catch (e) { console.error("Drawer fetch error:", e); }
+    }
+
+    function closeDrawer() {
+        activeSymbol = null;
+        document.getElementById('symbol-drawer').classList.remove('open');
+        document.querySelectorAll('.table-row-clickable').forEach(el => el.classList.remove('active'));
+    }
+
+    function updateGlobalTime() {
+        document.getElementById('global-last-update').textContent = new Date().toLocaleTimeString();
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        pollScanner();
+        setInterval(pollScanner, SCANNER_INTERVAL);
+
+        // Strategy filter listener
+        document.getElementById('filter-strategy').addEventListener('change', pollScanner);
+    });
+</script>
 {% endblock %}

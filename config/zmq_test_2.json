@@ -1,0 +1,9 @@
+{
+    "ports": {
+        "market_data_pub": 5557,
+        "telemetry_pub": 5562,
+        "command_control": 5572
+    },
+    "host": "127.0.0.1",
+    "version": 1
+}

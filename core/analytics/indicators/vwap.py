@@ -6,7 +6,7 @@ import numpy as np
 from datetime import datetime
 import pytz
 from core.analytics.indicators.base import BaseIndicator
-from core.data.market_session import MarketSession
+from core.database.utils import MarketSession
 
 
 class VWAP(BaseIndicator):
@@ -44,7 +44,7 @@ class VWAP(BaseIndicator):
         if anchor == "Session":
             # Filter to only include session bars
             session_mask = result_df[timestamp_col].apply(
-                lambda x: MarketSession.is_in_session(x, market)
+                lambda x: MarketSession.for_timestamp(x).contains(x)
             )
             # Set non-session values to NaN so they don't affect VWAP calculation
             hlc3 = hlc3.where(session_mask, np.nan)

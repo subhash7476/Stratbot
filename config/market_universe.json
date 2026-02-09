@@ -1,0 +1,10 @@
+{
+  "description": "Market universe - Profitable equities + MCX for live scanner testing",
+  "last_updated": "2026-02-09",
+  "symbols": [
+    "NSE_EQ|INE155A01022",
+    "NSE_EQ|INE118H01025",
+    "MCX_FO|449534",
+    "MCX_FO|451669"
+  ]
+}
