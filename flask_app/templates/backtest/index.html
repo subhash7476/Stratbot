@@ -9,327 +9,632 @@
 {% endblock %}
 
 {% block content %}
-<div class="space-y-8">
+<div class="space-y-6">
+    <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-3xl font-bold text-white tracking-tight">Strategy Backtesting</h1>
-            <p class="text-slate-400 mt-1">Simulate strategies on historical data to validate performance.</p>
+            <p class="text-slate-400 mt-1">Simulate, scan, and compare across symbols and timeframes.</p>
         </div>
-        <button onclick="toggleNewBacktest()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center font-bold">
-            <i class="fas fa-plus mr-2"></i> New Backtest
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="flex space-x-1 bg-slate-800/50 rounded-xl p-1 w-fit">
+        <button onclick="switchTab('single')" id="tab-btn-single" class="tab-btn px-5 py-2.5 rounded-lg text-sm font-bold transition-all bg-blue-600 text-white">
+            <i class="fas fa-flask mr-2"></i>Single Run
+        </button>
+        <button onclick="switchTab('scanner')" id="tab-btn-scanner" class="tab-btn px-5 py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-white hover:bg-slate-700/50">
+            <i class="fas fa-radar mr-2"></i>Symbol Scanner
+        </button>
+        <button onclick="switchTab('batch')" id="tab-btn-batch" class="tab-btn px-5 py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-white hover:bg-slate-700/50">
+            <i class="fas fa-layer-group mr-2"></i>Batch Compare
         </button>
     </div>
 
-    <!-- New Backtest Form (Hidden by default) -->
-    <div id="new-backtest-panel" class="hidden glass rounded-2xl p-8 border-blue-500/30 bg-blue-500/5 animate-in fade-in slide-in-from-top-4 duration-300">
-        <h2 class="text-xl font-bold text-white mb-6">Configure Backtest</h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Strategy</label>
-                <select id="strategy-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                    <option value="">Loading strategies...</option>
-                </select>
-            </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Symbol</label>
-                <div class="relative">
-                    <input type="text" id="symbol-input" list="symbol-list" placeholder="Search symbol (e.g. RELIANCE)..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                    <datalist id="symbol-list">
-                        <!-- Options will be populated dynamically -->
-                    </datalist>
+    <!-- ============================================================ -->
+    <!-- TAB 1: Single Run (existing functionality)                   -->
+    <!-- ============================================================ -->
+    <div id="tab-single" class="tab-content">
+        <div class="flex justify-end mb-4">
+            <button onclick="toggleNewBacktest()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center font-bold">
+                <i class="fas fa-plus mr-2"></i> New Backtest
+            </button>
+        </div>
+
+        <!-- New Backtest Form -->
+        <div id="new-backtest-panel" class="hidden glass rounded-2xl p-8 border-blue-500/30 bg-blue-500/5 mb-6">
+            <h2 class="text-xl font-bold text-white mb-6">Configure Backtest</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Strategy</label>
+                    <select id="strategy-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                        <option value="">Loading strategies...</option>
+                    </select>
                 </div>
-                <p class="text-[10px] text-slate-500 italic">Supports FO Stocks, Indices, and MCX</p>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Symbol</label>
+                    <div class="relative">
+                        <input type="text" id="symbol-input" list="symbol-list" placeholder="Search symbol (e.g. RELIANCE)..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                        <datalist id="symbol-list"></datalist>
+                    </div>
+                    <p class="text-[10px] text-slate-500 italic">Supports FO Stocks, Indices, and MCX</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Capital</label>
+                    <input type="number" id="capital-input" value="100000" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Start Date</label>
+                    <input type="date" id="start-date-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">End Date</label>
+                    <input type="date" id="end-date-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                </div>
             </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Capital</label>
-                <input type="number" id="capital-input" value="100000" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-            </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Start Date</label>
-                <input type="date" id="start-date-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-            </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">End Date</label>
-                <input type="date" id="end-date-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mt-6">
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Timeframe</label>
+                    <select id="timeframe-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                        <option value="1m">1 Minute</option>
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m">15 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                        <option value="1d">1 Day</option>
+                    </select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Take Profit (TP %)</label>
+                    <input type="number" id="tp-pct-input" step="0.1" value="0.6" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <p class="text-[10px] text-slate-500 italic">Example: 0.6 for 0.6%</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Stop Loss (SL %)</label>
+                    <input type="number" id="sl-pct-input" step="0.1" value="0.3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <p class="text-[10px] text-slate-500 italic">Example: 0.3 for 0.3%</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Max Hold Bars</label>
+                    <input type="number" id="max-hold-input" value="15" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <p class="text-[10px] text-slate-500 italic">Auto-exit after N bars</p>
+                </div>
+                <div class="flex items-end">
+                    <button id="run-backtest-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20">
+                        Run Simulation
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mt-6">
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Timeframe</label>
-                <select id="timeframe-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                    <option value="1m">1 Minute</option>
-                    <option value="5m">5 Minutes</option>
-                    <option value="15m">15 Minutes</option>
-                    <option value="1h">1 Hour</option>
-                    <option value="1d">1 Day</option>
-                </select>
-            </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Take Profit (TP %)</label>
-                <input type="number" id="tp-pct-input" step="0.1" value="0.6" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                <p class="text-[10px] text-slate-500 italic">Example: 0.6 for 0.6%</p>
-            </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Stop Loss (SL %)</label>
-                <input type="number" id="sl-pct-input" step="0.1" value="0.3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                <p class="text-[10px] text-slate-500 italic">Example: 0.3 for 0.3%</p>
-            </div>
-            <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Max Hold Bars</label>
-                <input type="number" id="max-hold-input" value="15" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
-                <p class="text-[10px] text-slate-500 italic">Auto-exit after N bars</p>
-            </div>
-            <div class="flex items-end">
-                <button id="run-backtest-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20">
-                    Run Simulation
+        <!-- Backtest Status Panel -->
+        <div id="backtest-status-panel" class="hidden glass rounded-2xl p-6 border-green-500/30 bg-green-500/5 mb-6">
+            <div class="flex justify-between items-center">
+                <h3 class="font-bold text-white">Backtest Status</h3>
+                <button id="close-status-btn" class="text-slate-400 hover:text-white">
+                    <i class="fas fa-times"></i>
                 </button>
             </div>
-        </div>
-    </div>
-
-    <!-- Backtest Status Panel -->
-    <div id="backtest-status-panel" class="hidden glass rounded-2xl p-6 border-green-500/30 bg-green-500/5 mb-8">
-        <div class="flex justify-between items-center">
-            <h3 class="font-bold text-white">Backtest Status</h3>
-            <button id="close-status-btn" class="text-slate-400 hover:text-white">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div class="mt-4">
-            <div class="flex items-center space-x-4">
-                <div class="flex-1">
-                    <div class="text-slate-400 text-sm">Status</div>
-                    <div id="backtest-status" class="text-white font-bold">PENDING</div>
-                </div>
-                <div class="flex-1">
-                    <div class="text-slate-400 text-sm">Progress</div>
-                    <div id="backtest-progress" class="text-white">Initializing...</div>
-                </div>
-                <div class="flex-1">
-                    <div class="text-slate-400 text-sm">Duration</div>
-                    <div id="backtest-duration" class="text-white">0s</div>
-                </div>
-            </div>
             <div class="mt-4">
-                <div class="text-slate-400 text-sm">Messages</div>
-                <div id="backtest-messages" class="mt-2 text-white text-sm bg-slate-800/50 p-3 rounded-lg h-24 overflow-y-auto"></div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex-1">
+                        <div class="text-slate-400 text-sm">Status</div>
+                        <div id="backtest-status" class="text-white font-bold">PENDING</div>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-slate-400 text-sm">Progress</div>
+                        <div id="backtest-progress" class="text-white">Initializing...</div>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-slate-400 text-sm">Duration</div>
+                        <div id="backtest-duration" class="text-white">0s</div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <div class="text-slate-400 text-sm">Messages</div>
+                    <div id="backtest-messages" class="mt-2 text-white text-sm bg-slate-800/50 p-3 rounded-lg h-24 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Backtests -->
+        <div class="glass rounded-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="font-bold text-white">Recent Simulations</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                        <tr>
+                            <th class="px-6 py-4">Strategy</th>
+                            <th class="px-6 py-4">Instrument</th>
+                            <th class="px-6 py-4">Returns</th>
+                            <th class="px-6 py-4">Drawdown</th>
+                            <th class="px-6 py-4">Win Rate</th>
+                            <th class="px-6 py-4">Status</th>
+                            <th class="px-6 py-4">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-runs-table" class="divide-y divide-slate-800 text-slate-300">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Analytics Dashboard -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="glass p-6 rounded-2xl">
+                <h3 class="font-bold text-white mb-6">Equity Growth (Last Run)</h3>
+                <div id="backtest-equity-chart"></div>
+            </div>
+            <div class="glass p-6 rounded-2xl">
+                <h3 class="font-bold text-white mb-6">Trade Distribution</h3>
+                <div id="backtest-distribution-chart"></div>
+            </div>
+        </div>
+
+        <!-- Trade List Section -->
+        <div id="trade-list-panel" class="hidden glass rounded-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/30">
+                <h3 class="font-bold text-white">Execution Log: <span id="trade-list-title" class="text-blue-400">Run Details</span></h3>
+                <button onclick="document.getElementById('trade-list-panel').classList.add('hidden')" class="text-slate-400 hover:text-white">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="overflow-x-auto max-h-[500px]">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest sticky top-0">
+                        <tr>
+                            <th class="px-6 py-4">Symbol</th>
+                            <th class="px-6 py-4">Entry Time</th>
+                            <th class="px-6 py-4">Exit Time</th>
+                            <th class="px-6 py-4">Entry Price</th>
+                            <th class="px-6 py-4">Exit Price</th>
+                            <th class="px-6 py-4">PnL</th>
+                            <th class="px-6 py-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trade-list-body" class="divide-y divide-slate-800 text-slate-300">
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 
-    <!-- Recent Backtests -->
-    <div class="glass rounded-2xl overflow-hidden">
-        <div class="p-6 border-b border-slate-700 flex justify-between items-center">
-            <h3 class="font-bold text-white">Recent Simulations</h3>
-            <div class="flex space-x-2">
-                <span class="px-3 py-1 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold rounded-full border border-emerald-500/20">85% Success</span>
-                <span class="px-3 py-1 bg-blue-500/10 text-blue-500 text-[10px] font-bold rounded-full border border-blue-500/20">12 Total</span>
+    <!-- ============================================================ -->
+    <!-- TAB 2: Symbol Scanner                                        -->
+    <!-- ============================================================ -->
+    <div id="tab-scanner" class="tab-content hidden">
+
+        <!-- Scanner Controls -->
+        <div class="glass rounded-2xl p-6 mb-6">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-white">Walk-Forward Symbol Scanner</h2>
+                <button id="start-scan-btn" onclick="startNewScan()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center">
+                    <i class="fas fa-play mr-2"></i> Start Scan
+                </button>
+            </div>
+            <p class="text-slate-400 text-sm mb-6">Runs train/test walk-forward validation on all equity symbols to find profitable ones. Baseline strategy with no filters.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Train Start</label>
+                    <input type="date" id="scan-train-start" value="2024-10-17" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Train End</label>
+                    <input type="date" id="scan-train-end" value="2025-05-31" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Test Start</label>
+                    <input type="date" id="scan-test-start" value="2025-06-01" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Test End</label>
+                    <input type="date" id="scan-test-end" value="2025-12-31" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Timeframe</label>
+                    <select id="scan-timeframe" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                        <option value="15m" selected>15 Minutes</option>
+                        <option value="5m">5 Minutes</option>
+                        <option value="10m">10 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                    </select>
+                </div>
+                <div class="space-y-1">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Limit (0=all)</label>
+                    <input type="number" id="scan-limit" value="0" min="0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
             </div>
         </div>
-        <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm">
-                <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                        <th class="px-6 py-4">Strategy</th>
-                        <th class="px-6 py-4">Instrument</th>
-                        <th class="px-6 py-4">Returns</th>
-                        <th class="px-6 py-4">Drawdown</th>
-                        <th class="px-6 py-4">Win Rate</th>
-                        <th class="px-6 py-4">Status</th>
-                        <th class="px-6 py-4">Action</th>
-                    </tr>
-                </thead>
-                <tbody id="recent-runs-table" class="divide-y divide-slate-800 text-slate-300">
-                    <!-- Rows will be populated by JavaScript -->
-                </tbody>
-            </table>
+
+        <!-- Scan Progress (hidden until scan starts) -->
+        <div id="scan-progress-panel" class="hidden glass rounded-2xl p-6 mb-6 border-blue-500/30 bg-blue-500/5">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-white flex items-center">
+                    <i class="fas fa-spinner fa-spin mr-2 text-blue-400"></i> Scan In Progress
+                </h3>
+                <span id="scan-progress-pct" class="text-blue-400 font-bold text-lg">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-3 mb-3">
+                <div id="scan-progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-sm text-slate-400">
+                <span id="scan-progress-detail">Starting...</span>
+                <span id="scan-progress-count">0 / 0</span>
+            </div>
+        </div>
+
+        <!-- Past Scan Results -->
+        <div class="glass rounded-2xl overflow-hidden mb-6">
+            <div class="p-6 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="font-bold text-white">Scan History</h3>
+                <button onclick="loadScanHistory()" class="text-slate-400 hover:text-white text-sm">
+                    <i class="fas fa-sync-alt mr-1"></i> Refresh
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                        <tr>
+                            <th class="px-6 py-4">Scan ID</th>
+                            <th class="px-6 py-4">Date</th>
+                            <th class="px-6 py-4">Total Symbols</th>
+                            <th class="px-6 py-4">Profitable</th>
+                            <th class="px-6 py-4">Hit Rate</th>
+                            <th class="px-6 py-4">Status</th>
+                            <th class="px-6 py-4">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scan-history-table" class="divide-y divide-slate-800 text-slate-300">
+                        <tr><td colspan="7" class="px-6 py-8 text-center text-slate-500">Loading scan history...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Scan Detail View (hidden until a scan is selected) -->
+        <div id="scan-detail-panel" class="hidden">
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="glass p-4 rounded-xl text-center">
+                    <div class="text-slate-400 text-xs uppercase font-bold tracking-widest">Profitable</div>
+                    <div id="scan-detail-profitable" class="text-2xl font-bold text-emerald-400 mt-1">-</div>
+                </div>
+                <div class="glass p-4 rounded-xl text-center">
+                    <div class="text-slate-400 text-xs uppercase font-bold tracking-widest">Total Scanned</div>
+                    <div id="scan-detail-total" class="text-2xl font-bold text-white mt-1">-</div>
+                </div>
+                <div class="glass p-4 rounded-xl text-center">
+                    <div class="text-slate-400 text-xs uppercase font-bold tracking-widest">Hit Rate</div>
+                    <div id="scan-detail-hitrate" class="text-2xl font-bold text-blue-400 mt-1">-</div>
+                </div>
+                <div class="glass p-4 rounded-xl text-center">
+                    <div class="text-slate-400 text-xs uppercase font-bold tracking-widest">Best Test PnL</div>
+                    <div id="scan-detail-best" class="text-2xl font-bold text-emerald-400 mt-1">-</div>
+                </div>
+            </div>
+
+            <!-- Profitable Symbols Table -->
+            <div class="glass rounded-2xl overflow-hidden mb-6">
+                <div class="p-6 border-b border-slate-700 flex justify-between items-center">
+                    <h3 class="font-bold text-white">
+                        <i class="fas fa-trophy text-amber-400 mr-2"></i>Profitable Symbols
+                    </h3>
+                    <button onclick="addAllProfitableToBatch()" class="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-1.5 rounded-lg text-sm font-bold transition-all border border-blue-500/20">
+                        <i class="fas fa-plus mr-1"></i> Add All to Batch
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                            <tr>
+                                <th class="px-4 py-3">Rank</th>
+                                <th class="px-4 py-3">Symbol</th>
+                                <th class="px-4 py-3">Train PnL</th>
+                                <th class="px-4 py-3">Test PnL</th>
+                                <th class="px-4 py-3">Test WR</th>
+                                <th class="px-4 py-3">Train DD</th>
+                                <th class="px-4 py-3">Test DD</th>
+                                <th class="px-4 py-3">Trades</th>
+                                <th class="px-4 py-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan-profitable-table" class="divide-y divide-slate-800 text-slate-300">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- All Symbol Results -->
+            <div class="glass rounded-2xl overflow-hidden">
+                <div class="p-6 border-b border-slate-700">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-bold text-white">All Symbol Results</h3>
+                        <div class="flex items-center space-x-3">
+                            <label class="text-sm text-slate-400">
+                                <input type="checkbox" id="scan-show-failures" class="mr-1" onchange="filterScanResults()"> Show failures
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto max-h-[500px]">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest sticky top-0">
+                            <tr>
+                                <th class="px-4 py-3">Symbol</th>
+                                <th class="px-4 py-3">Train PnL</th>
+                                <th class="px-4 py-3">Train WR</th>
+                                <th class="px-4 py-3">Train DD</th>
+                                <th class="px-4 py-3">Test PnL</th>
+                                <th class="px-4 py-3">Test WR</th>
+                                <th class="px-4 py-3">Test DD</th>
+                                <th class="px-4 py-3">Trades</th>
+                                <th class="px-4 py-3">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan-all-results-table" class="divide-y divide-slate-800 text-slate-300">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Analytics Dashboard Mock -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div class="glass p-6 rounded-2xl">
-            <h3 class="font-bold text-white mb-6">Equity Growth (Last Run)</h3>
-            <div id="backtest-equity-chart"></div>
+    <!-- ============================================================ -->
+    <!-- TAB 3: Batch Compare                                         -->
+    <!-- ============================================================ -->
+    <div id="tab-batch" class="tab-content hidden">
+
+        <!-- Batch Configuration -->
+        <div class="glass rounded-2xl p-6 mb-6">
+            <h2 class="text-xl font-bold text-white mb-4">Batch Comparison</h2>
+            <p class="text-slate-400 text-sm mb-6">Run the baseline strategy across multiple symbols and compare results side-by-side.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Left: Symbol Selection -->
+                <div>
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Symbols</label>
+                    <div class="flex space-x-2 mb-3">
+                        <input type="text" id="batch-symbol-input" list="batch-symbol-list" placeholder="Search and add symbols..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                        <datalist id="batch-symbol-list"></datalist>
+                        <button onclick="addBatchSymbol()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div id="batch-symbols-tags" class="flex flex-wrap gap-2 min-h-[40px] p-2 bg-slate-900/50 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 text-xs italic" id="batch-no-symbols-msg">No symbols selected. Add from search or scanner results.</span>
+                    </div>
+                    
+                    <!-- Portfolio Mode Toggle -->
+                    <div class="mt-4">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="checkbox" id="portfolio-mode-toggle" class="sr-only peer" onchange="togglePortfolioMode()">
+                            <div class="relative w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <span class="ml-3 text-sm font-bold text-slate-400">Portfolio Mode</span>
+                        </label>
+                    </div>
+                    
+                    <!-- Portfolio Settings (initially hidden) -->
+                    <div id="portfolio-settings" class="hidden mt-4 space-y-4">
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Allocation Method</label>
+                            <select id="allocation-method" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                                <option value="equal_weight">Equal Weight</option>
+                                <option value="inverse_volatility">Inverse Volatility</option>
+                                <option value="risk_parity">Risk Parity</option>
+                                <option value="rank_weighted">Rank Weighted</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Max Concurrent Positions</label>
+                            <input type="range" id="max-concurrent-slider" min="1" max="10" value="5" class="w-full" oninput="updateSliderValue(this, 'max-concurrent-value')">
+                            <div class="flex justify-between text-xs text-slate-400">
+                                <span>1</span>
+                                <span id="max-concurrent-value" class="text-white font-bold">5</span>
+                                <span>10</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Parameters -->
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Start Date</label>
+                            <input type="date" id="batch-start-date" value="2024-10-17" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">End Date</label>
+                            <input type="date" id="batch-end-date" value="2025-12-31" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Timeframe</label>
+                            <select id="batch-timeframe" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                                <option value="15m" selected>15 Minutes</option>
+                                <option value="5m">5 Minutes</option>
+                                <option value="10m">10 Minutes</option>
+                                <option value="1h">1 Hour</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Capital</label>
+                            <input type="number" id="batch-capital" value="100000" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+                    <button id="run-batch-btn" onclick="runBatch()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20">
+                        <i class="fas fa-play mr-2"></i> Run Batch (<span id="batch-count">0</span> symbols)
+                    </button>
+                </div>
+            </div>
         </div>
-        <div class="glass p-6 rounded-2xl">
-            <h3 class="font-bold text-white mb-6">Trade Distribution</h3>
-            <div id="backtest-distribution-chart"></div>
+
+        <!-- Batch Progress -->
+        <div id="batch-progress-panel" class="hidden glass rounded-2xl p-6 mb-6 border-blue-500/30 bg-blue-500/5">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-white flex items-center">
+                    <i class="fas fa-spinner fa-spin mr-2 text-blue-400"></i> Batch Running
+                </h3>
+                <span id="batch-progress-pct" class="text-blue-400 font-bold text-lg">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-3 mb-3">
+                <div id="batch-progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div id="batch-progress-log" class="mt-3 text-sm bg-slate-800/50 p-3 rounded-lg h-32 overflow-y-auto text-slate-400 font-mono text-xs">
+            </div>
+        </div>
+
+        <!-- Batch Results Comparison Table -->
+        <div id="batch-results-panel" class="hidden glass rounded-2xl overflow-hidden mb-6">
+            <div class="p-6 border-b border-slate-700">
+                <h3 class="font-bold text-white">Comparison Results</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                        <tr>
+                            <th class="px-4 py-3">Symbol</th>
+                            <th class="px-4 py-3">Net PnL</th>
+                            <th class="px-4 py-3">Win Rate</th>
+                            <th class="px-4 py-3">Max DD</th>
+                            <th class="px-4 py-3">Trades</th>
+                            <th class="px-4 py-3">Profit Factor</th>
+                            <th class="px-4 py-3">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batch-results-table" class="divide-y divide-slate-800 text-slate-300">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Batch Equity Chart -->
+        <div id="batch-chart-panel" class="hidden glass p-6 rounded-2xl">
+            <h3 class="font-bold text-white mb-6">Combined Equity Curves</h3>
+            <div id="batch-equity-chart"></div>
         </div>
     </div>
 
-    <!-- Trade List Section -->
-    <div id="trade-list-panel" class="hidden glass rounded-2xl overflow-hidden mt-8">
-        <div class="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/30">
-            <h3 class="font-bold text-white">Execution Log: <span id="trade-list-title" class="text-blue-400">Run Details</span></h3>
-            <button onclick="document.getElementById('trade-list-panel').classList.add('hidden')" class="text-slate-400 hover:text-white">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div class="overflow-x-auto max-h-[500px]">
-            <table class="w-full text-left text-sm">
-                <thead class="bg-slate-800/50 text-slate-400 uppercase text-[10px] font-bold tracking-widest sticky top-0">
-                    <tr>
-                        <th class="px-6 py-4">Symbol</th>
-                        <th class="px-6 py-4">Entry Time</th>
-                        <th class="px-6 py-4">Exit Time</th>
-                        <th class="px-6 py-4">Entry Price</th>
-                        <th class="px-6 py-4">Exit Price</th>
-                        <th class="px-6 py-4">PnL</th>
-                        <th class="px-6 py-4">Status</th>
-                    </tr>
-                </thead>
-                <tbody id="trade-list-body" class="divide-y divide-slate-800 text-slate-300">
-                    <!-- Rows will be populated by JavaScript -->
-                </tbody>
-            </table>
-        </div>
-    </div>
 </div>
 
 {% block scripts %}
 <script>
-    function toggleNewBacktest() {
-        const panel = document.getElementById('new-backtest-panel');
-        panel.classList.toggle('hidden');
+    // =========================================================
+    // Tab Management
+    // =========================================================
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('bg-blue-600', 'text-white');
+            btn.classList.add('text-slate-400');
+        });
+        document.getElementById('tab-' + tabId).classList.remove('hidden');
+        const btn = document.getElementById('tab-btn-' + tabId);
+        btn.classList.add('bg-blue-600', 'text-white');
+        btn.classList.remove('text-slate-400');
+
+        // Lazy-load data for tabs
+        if (tabId === 'scanner') loadScanHistory();
+        if (tabId === 'batch') populateBatchSymbolList();
     }
 
-    // Load strategies dynamically
+    // =========================================================
+    // Single Run Tab (existing functionality)
+    // =========================================================
+    function toggleNewBacktest() {
+        document.getElementById('new-backtest-panel').classList.toggle('hidden');
+    }
+
+    let symbolMap = {};
+    let equityChart, distributionChart, currentRuns = [];
+
     async function loadStrategies() {
         try {
             const response = await fetch('/backtest/api/strategies');
             const data = await response.json();
-
-            const selectElement = document.getElementById('strategy-select');
-            selectElement.innerHTML = '<option value="">Select a strategy</option>';
-
+            const sel = document.getElementById('strategy-select');
+            sel.innerHTML = '<option value="">Select a strategy</option>';
             if (data.success && data.strategies) {
-                data.strategies.forEach(strategy => {
-                    const option = document.createElement('option');
-                    option.value = strategy.id;
-                    option.textContent = strategy.name;
-                    selectElement.appendChild(option);
+                data.strategies.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id; opt.textContent = s.name;
+                    sel.appendChild(opt);
                 });
             }
-        } catch (error) {
-            console.error('Error loading strategies:', error);
-            const selectElement = document.getElementById('strategy-select');
-            selectElement.innerHTML = '<option value="">Error loading strategies</option>';
+        } catch (e) {
+            document.getElementById('strategy-select').innerHTML = '<option value="">Error loading</option>';
         }
     }
 
-    // Global caches
-    let symbolMap = {};
-
-    // Load symbols dynamically
     async function loadSymbols() {
         try {
             const response = await fetch('/backtest/api/symbols');
             const data = await response.json();
-
-            const datalist = document.getElementById('symbol-list');
-            if (datalist) {
-                datalist.innerHTML = '';
-                symbolMap = {};
-
+            const dl = document.getElementById('symbol-list');
+            if (dl) {
+                dl.innerHTML = ''; symbolMap = {};
                 if (data.success && data.symbols) {
-                    data.symbols.forEach(symbol => {
-                        const option = document.createElement('option');
-                        option.value = symbol.label;
-                        datalist.appendChild(option);
-                        symbolMap[symbol.label] = symbol.value; // Map label to instrument_key
+                    data.symbols.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.label; dl.appendChild(opt);
+                        symbolMap[s.label] = s.value;
                     });
                 }
             }
-        } catch (error) {
-            console.error('Error loading symbols:', error);
+        } catch (e) {
             const input = document.getElementById('symbol-input');
             if (input) input.placeholder = "Error loading symbols";
         }
     }
 
-    // Chart instances
-    let equityChart;
-    let distributionChart;
-    let currentRuns = [];
-
-    // Call the function when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         loadStrategies();
         loadSymbols();
-        loadRecentRuns(); // Load recent runs on page load
-
-        // Initialize charts
+        loadRecentRuns();
         initCharts();
-
-        // Add event listener to the run backtest button
         const runBtn = document.getElementById('run-backtest-btn');
-        if (runBtn) {
-            runBtn.addEventListener('click', runBacktest);
-        }
-
-        // Add event listener to the close status button
+        if (runBtn) runBtn.addEventListener('click', runBacktest);
         const closeBtn = document.getElementById('close-status-btn');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', hideBacktestStatus);
-        }
+        if (closeBtn) closeBtn.addEventListener('click', hideBacktestStatus);
     });
 
     function initCharts() {
-        // Equity Chart
-        const equityOptions = {
+        equityChart = new ApexCharts(document.querySelector("#backtest-equity-chart"), {
             series: [{ name: 'Equity', data: [] }],
             chart: { type: 'line', height: 300, toolbar: { show: false }, background: 'transparent' },
-            stroke: { curve: 'smooth', width: 3 },
-            colors: ['#10b981'],
+            stroke: { curve: 'smooth', width: 3 }, colors: ['#10b981'],
             xaxis: { type: 'datetime', labels: { style: { colors: '#64748b' } } },
             yaxis: { labels: { style: { colors: '#64748b' } } },
-            grid: { borderColor: '#334155' },
-            theme: { mode: 'dark' },
+            grid: { borderColor: '#334155' }, theme: { mode: 'dark' },
             noData: { text: 'Select a run to view equity growth', style: { color: '#64748b' } }
-        };
-        equityChart = new ApexCharts(document.querySelector("#backtest-equity-chart"), equityOptions);
+        });
         equityChart.render();
 
-        // Distribution Chart
-        const distOptions = {
-            series: [],
-            chart: { type: 'donut', height: 300, background: 'transparent' },
+        distributionChart = new ApexCharts(document.querySelector("#backtest-distribution-chart"), {
+            series: [], chart: { type: 'donut', height: 300, background: 'transparent' },
             labels: ['Winning Long', 'Winning Short', 'Losing Long', 'Losing Short'],
             colors: ['#10b981', '#34d399', '#f43f5e', '#fb7185'],
             legend: { position: 'bottom', labels: { colors: '#94a3b8' } },
-            theme: { mode: 'dark' },
-            plotOptions: { pie: { donut: { size: '70%' } } },
+            theme: { mode: 'dark' }, plotOptions: { pie: { donut: { size: '70%' } } },
             noData: { text: 'No trade data', style: { color: '#64748b' } }
-        };
-        distributionChart = new ApexCharts(document.querySelector("#backtest-distribution-chart"), distOptions);
+        });
         distributionChart.render();
     }
 
-    // Function to run backtest
     async function runBacktest() {
-        const strategySelect = document.getElementById('strategy-select');
-        const symbolInput = document.getElementById('symbol-input');
-        const capitalInput = document.getElementById('capital-input');
-        const startDateInput = document.getElementById('start-date-input');
-        const endDateInput = document.getElementById('end-date-input');
-        const tpInput = document.getElementById('tp-pct-input');
-        const slInput = document.getElementById('sl-pct-input');
-        const maxHoldInput = document.getElementById('max-hold-input');
-        const timeframeSelect = document.getElementById('timeframe-select');
-
-        const strategyId = strategySelect.value;
-        const symbolLabel = symbolInput.value;
+        const strategyId = document.getElementById('strategy-select').value;
+        const symbolLabel = document.getElementById('symbol-input').value;
         const instrumentKey = symbolMap[symbolLabel];
-        
-        const capital = parseFloat(capitalInput.value);
-        const startDate = startDateInput.value;
-        const endDate = endDateInput.value;
-        
-        const tpPct = parseFloat(tpInput.value) / 100;
-        const slPct = parseFloat(slInput.value) / 100;
-        const maxHold = parseInt(maxHoldInput.value);
+        const capital = parseFloat(document.getElementById('capital-input').value);
+        const startDate = document.getElementById('start-date-input').value;
+        const endDate = document.getElementById('end-date-input').value;
+        const tpPct = parseFloat(document.getElementById('tp-pct-input').value) / 100;
+        const slPct = parseFloat(document.getElementById('sl-pct-input').value) / 100;
+        const maxHold = parseInt(document.getElementById('max-hold-input').value);
 
         if (!strategyId || !instrumentKey || !capital || !startDate || !endDate) {
             alert('Please fill all required fields and select a valid symbol from the list');
@@ -341,35 +646,29 @@
 
         const runBtn = document.getElementById('run-backtest-btn');
         const originalText = runBtn.textContent;
-        runBtn.disabled = true;
-        runBtn.textContent = 'Running...';
+        runBtn.disabled = true; runBtn.textContent = 'Running...';
 
         try {
             const response = await fetch('/backtest/api/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     strategy_id: strategyId, symbol: instrumentKey, capital: capital,
                     start_date: startDate, end_date: endDate,
                     tp_pct: tpPct, sl_pct: slPct, max_hold_bars: maxHold,
-                    timeframe: timeframeSelect.value
+                    timeframe: document.getElementById('timeframe-select').value
                 })
             });
-
             const result = await response.json();
             if (result.success) {
                 updateBacktestStatus('STARTED', 'Backtest submitted', '0s', 'Backtest job queued');
                 pollBacktestStatus(result.run_id);
             } else {
                 updateBacktestStatus('FAILED', 'Error occurred', '0s', `Error: ${result.error || result.message}`);
-                alert(`Error: ${result.error || result.message}`);
             }
         } catch (error) {
-            console.error('Error:', error);
             updateBacktestStatus('FAILED', 'Connection error', '0s', `Error: ${error.message}`);
         } finally {
-            runBtn.disabled = false;
-            runBtn.textContent = originalText;
+            runBtn.disabled = false; runBtn.textContent = originalText;
         }
     }
 
@@ -377,31 +676,27 @@
         const startTime = Date.now();
         const pollInterval = setInterval(async () => {
             try {
-                const response = await fetch(`/backtest/api/runs`);
+                const response = await fetch('/backtest/api/runs');
                 const result = await response.json();
-
                 if (result.success && result.runs) {
                     const run = result.runs.find(r => r.run_id === runId);
                     if (run) {
-                        const duration = Math.floor((Date.now() - startTime)/1000);
+                        const dur = Math.floor((Date.now() - startTime)/1000);
                         if (run.status === 'COMPLETED') {
                             clearInterval(pollInterval);
-                            updateBacktestStatus('COMPLETED', 'Finished', `${duration}s`, `Completed: ${run.total_trades} trades`);
+                            updateBacktestStatus('COMPLETED', 'Finished', `${dur}s`, `Completed: ${run.total_trades} trades`);
                             loadRecentRuns();
                             showRunDetails(runId, run.symbol);
                         } else if (run.status === 'FAILED') {
                             clearInterval(pollInterval);
-                            updateBacktestStatus('FAILED', 'Failed', `${duration}s`, `Error: ${run.error_message}`);
+                            updateBacktestStatus('FAILED', 'Failed', `${dur}s`, `Error: ${run.error_message}`);
                             loadRecentRuns();
                         } else {
-                            updateBacktestStatus(run.status, 'Processing...', `${duration}s`, `Status: ${run.status}`);
+                            updateBacktestStatus(run.status, 'Processing...', `${dur}s`, `Status: ${run.status}`);
                         }
                     }
                 }
-            } catch (error) {
-                console.error('Error polling:', error);
-                clearInterval(pollInterval);
-            }
+            } catch (e) { clearInterval(pollInterval); }
         }, 2000);
     }
 
@@ -412,52 +707,43 @@
             if (result.success && result.runs) {
                 currentRuns = result.runs;
                 updateRecentRunsTable(result.runs);
-                const latestCompleted = result.runs.find(r => r.status === 'COMPLETED');
-                if (latestCompleted && document.getElementById('trade-list-panel').classList.contains('hidden')) {
-                    showRunDetails(latestCompleted.run_id, latestCompleted.symbol);
+                const latest = result.runs.find(r => r.status === 'COMPLETED');
+                if (latest && document.getElementById('trade-list-panel').classList.contains('hidden')) {
+                    showRunDetails(latest.run_id, latest.symbol);
                 }
             }
-        } catch (error) { console.error('Error:', error); }
+        } catch (e) {}
     }
 
     async function showRunDetails(runId, symbol) {
         try {
             const response = await fetch(`/backtest/api/runs/${runId}/trades`);
             const result = await response.json();
-
             if (result.success && result.trades) {
                 const panel = document.getElementById('trade-list-panel');
                 const body = document.getElementById('trade-list-body');
-                const title = document.getElementById('trade-list-title');
-
-                title.textContent = `${symbol} (${runId.substring(0, 8)})`;
+                document.getElementById('trade-list-title').textContent = `${symbol} (${runId.substring(0, 8)})`;
                 body.innerHTML = '';
-
                 const runInfo = currentRuns.find(r => r.run_id === runId);
                 let initialCapital = 100000;
                 if (runInfo && runInfo.params) {
-                    try {
-                        const params = typeof runInfo.params === 'string' ? JSON.parse(runInfo.params) : runInfo.params;
-                        initialCapital = params.capital || 100000;
-                    } catch (e) {}
+                    try { initialCapital = (typeof runInfo.params === 'string' ? JSON.parse(runInfo.params) : runInfo.params).capital || 100000; } catch(e) {}
                 }
-
                 if (result.trades.length === 0) {
                     body.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-500">No trades executed</td></tr>';
                     updateCharts([], initialCapital);
                 } else {
-                    result.trades.forEach(trade => {
-                        const pnlClass = trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                    result.trades.forEach(t => {
+                        const cls = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
                         const row = document.createElement('tr');
                         row.innerHTML = `
-                            <td class="px-6 py-4 font-mono text-xs">${trade.symbol}</td>
-                            <td class="px-6 py-4 text-xs">${new Date(trade.entry_ts).toLocaleString()}</td>
-                            <td class="px-6 py-4 text-xs">${new Date(trade.exit_ts).toLocaleString()}</td>
-                            <td class="px-6 py-4 font-mono">₹${trade.entry_price.toFixed(2)}</td>
-                            <td class="px-6 py-4 font-mono">₹${trade.exit_price.toFixed(2)}</td>
-                            <td class="px-6 py-4 font-bold ${pnlClass}">₹${trade.pnl.toFixed(2)}</td>
-                            <td class="px-6 py-4"><span class="px-2 py-1 rounded bg-slate-800 text-[10px]">CLOSED</span></td>
-                        `;
+                            <td class="px-6 py-4 font-mono text-xs">${t.symbol}</td>
+                            <td class="px-6 py-4 text-xs">${new Date(t.entry_ts).toLocaleString()}</td>
+                            <td class="px-6 py-4 text-xs">${new Date(t.exit_ts).toLocaleString()}</td>
+                            <td class="px-6 py-4 font-mono">${fmtRs(t.entry_price)}</td>
+                            <td class="px-6 py-4 font-mono">${fmtRs(t.exit_price)}</td>
+                            <td class="px-6 py-4 font-bold ${cls}">${fmtRs(t.pnl)}</td>
+                            <td class="px-6 py-4"><span class="px-2 py-1 rounded bg-slate-800 text-[10px]">CLOSED</span></td>`;
                         body.appendChild(row);
                     });
                     updateCharts(result.trades, initialCapital);
@@ -465,30 +751,24 @@
                 panel.classList.remove('hidden');
                 panel.scrollIntoView({ behavior: 'smooth' });
             }
-        } catch (error) { console.error('Error:', error); }
+        } catch (e) {}
     }
 
     function updateCharts(trades, initialCapital) {
         if (!equityChart || !distributionChart) return;
-        let winLong = 0, winShort = 0, lossLong = 0, lossShort = 0;
+        let wl=0, ws=0, ll=0, ls=0;
         trades.forEach(t => {
-            const isWin = t.pnl > 0;
-            const isLong = t.direction === 'LONG' || t.direction === 'BUY';
-            if (isWin && isLong) winLong++;
-            else if (isWin && !isLong) winShort++;
-            else if (!isWin && isLong) lossLong++;
-            else lossShort++;
+            const w = t.pnl > 0, lo = t.direction === 'LONG' || t.direction === 'BUY';
+            if(w&&lo)wl++; else if(w&&!lo)ws++; else if(!w&&lo)ll++; else ls++;
         });
-        distributionChart.updateSeries([winLong, winShort, lossLong, lossShort]);
-
-        let currentEquity = initialCapital;
-        const equityData = trades.length > 0 ? [{ x: new Date(trades[0].entry_ts).getTime() - 60000, y: initialCapital }] : [];
-        const sortedTrades = [...trades].sort((a, b) => new Date(a.exit_ts) - new Date(b.exit_ts));
-        sortedTrades.forEach(t => {
-            currentEquity += (t.pnl - (t.fees || 0));
-            equityData.push({ x: new Date(t.exit_ts).getTime(), y: parseFloat(currentEquity.toFixed(2)) });
+        distributionChart.updateSeries([wl, ws, ll, ls]);
+        let eq = initialCapital;
+        const data = trades.length > 0 ? [{x: new Date(trades[0].entry_ts).getTime()-60000, y: initialCapital}] : [];
+        [...trades].sort((a,b) => new Date(a.exit_ts)-new Date(b.exit_ts)).forEach(t => {
+            eq += (t.pnl - (t.fees||0));
+            data.push({x: new Date(t.exit_ts).getTime(), y: parseFloat(eq.toFixed(2))});
         });
-        equityChart.updateSeries([{ name: 'Equity', data: equityData }]);
+        equityChart.updateSeries([{name:'Equity', data}]);
     }
 
     function updateRecentRunsTable(runs) {
@@ -502,26 +782,24 @@
             const row = document.createElement('tr');
             row.className = 'hover:bg-slate-700/30 transition-colors cursor-pointer group';
             row.onclick = () => showRunDetails(run.run_id, run.symbol);
-            let statusHtml = `<span class="px-2 py-1 rounded bg-slate-800 text-[10px] text-slate-400 border border-slate-700">${run.status || 'PENDING'}</span>`;
-            if (run.status === 'COMPLETED') statusHtml = `<span class="px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 text-[10px] border border-emerald-500/20">${run.status}</span>`;
-            else if (run.status === 'RUNNING') statusHtml = `<span class="px-2 py-1 rounded bg-blue-500/10 text-blue-500 text-[10px] border border-blue-500/20 flex items-center w-fit"><i class="fas fa-spinner fa-spin mr-1"></i> ${run.status}</span>`;
-            else if (run.status === 'FAILED') statusHtml = `<span class="px-2 py-1 rounded bg-rose-500/10 text-rose-500 text-[10px] border border-rose-500/20">${run.status}</span>`;
-
+            let sh = `<span class="px-2 py-1 rounded bg-slate-800 text-[10px] text-slate-400 border border-slate-700">${run.status||'PENDING'}</span>`;
+            if (run.status==='COMPLETED') sh = `<span class="px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 text-[10px] border border-emerald-500/20">${run.status}</span>`;
+            else if (run.status==='RUNNING') sh = `<span class="px-2 py-1 rounded bg-blue-500/10 text-blue-500 text-[10px] border border-blue-500/20 flex items-center w-fit"><i class="fas fa-spinner fa-spin mr-1"></i> ${run.status}</span>`;
+            else if (run.status==='FAILED') sh = `<span class="px-2 py-1 rounded bg-rose-500/10 text-rose-500 text-[10px] border border-rose-500/20">${run.status}</span>`;
             row.innerHTML = `
-                <td class="px-6 py-4 font-medium text-white">${run.strategy_id || 'N/A'}</td>
-                <td class="px-6 py-4">${run.symbol || 'N/A'}</td>
-                <td class="px-6 py-4 text-emerald-400 font-bold">${run.total_pnl ? '₹' + run.total_pnl.toLocaleString(undefined, {minimumFractionDigits: 2}) : 'N/A'}</td>
-                <td class="px-6 py-4 text-rose-400">${run.max_drawdown ? run.max_drawdown.toFixed(2) + '%' : 'N/A'}</td>
-                <td class="px-6 py-4">${run.win_rate ? (run.win_rate * 100).toFixed(0) + '%' : 'N/A'}</td>
-                <td class="px-6 py-4">${statusHtml}</td>
+                <td class="px-6 py-4 font-medium text-white">${run.strategy_id||'N/A'}</td>
+                <td class="px-6 py-4">${run.symbol||'N/A'}</td>
+                <td class="px-6 py-4 font-bold ${run.total_pnl>=0?'text-emerald-400':'text-rose-400'}">${run.total_pnl ? fmtRs(run.total_pnl) : 'N/A'}</td>
+                <td class="px-6 py-4 text-rose-400">${run.max_drawdown ? run.max_drawdown.toFixed(2)+'%' : 'N/A'}</td>
+                <td class="px-6 py-4">${run.win_rate ? (run.win_rate*100).toFixed(0)+'%' : 'N/A'}</td>
+                <td class="px-6 py-4">${sh}</td>
                 <td class="px-6 py-4">
                     <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onclick="event.stopPropagation(); showRunDetails('${run.run_id}', '${run.symbol}')" class="text-blue-500 hover:text-blue-400 px-2 py-1"><i class="fas fa-chart-bar"></i></button>
+                        <button onclick="event.stopPropagation(); showRunDetails('${run.run_id}','${run.symbol}')" class="text-blue-500 hover:text-blue-400 px-2 py-1"><i class="fas fa-chart-bar"></i></button>
                         <a href="/backtest/api/runs/${run.run_id}/trades/csv" onclick="event.stopPropagation()" class="text-amber-500 hover:text-amber-400 px-2 py-1"><i class="fas fa-file-csv"></i></a>
                         <button onclick="event.stopPropagation(); deleteRun('${run.run_id}')" class="text-rose-500 hover:text-rose-400 px-2 py-1"><i class="fas fa-trash"></i></button>
                     </div>
-                </td>
-            `;
+                </td>`;
             tbody.appendChild(row);
         });
     }
@@ -529,38 +807,708 @@
     async function deleteRun(runId) {
         if (!confirm('Delete this backtest run?')) return;
         try {
-            const response = await fetch(`/backtest/api/runs/${runId}`, { method: 'DELETE' });
-            const result = await response.json();
-            if (result.success) {
-                loadRecentRuns();
-                document.getElementById('trade-list-panel').classList.add('hidden');
-            }
-        } catch (error) { alert('Delete failed: ' + error.message); }
+            const r = await fetch(`/backtest/api/runs/${runId}`, {method:'DELETE'});
+            const d = await r.json();
+            if (d.success) { loadRecentRuns(); document.getElementById('trade-list-panel').classList.add('hidden'); }
+        } catch (e) { alert('Delete failed: ' + e.message); }
     }
 
     function showBacktestStatus() {
-        const panel = document.getElementById('backtest-status-panel');
-        panel.classList.remove('hidden');
-        panel.scrollIntoView({ behavior: 'smooth' });
+        const p = document.getElementById('backtest-status-panel');
+        p.classList.remove('hidden'); p.scrollIntoView({behavior:'smooth'});
     }
-
-    function hideBacktestStatus() {
-        document.getElementById('backtest-status-panel').classList.add('hidden');
-    }
-
+    function hideBacktestStatus() { document.getElementById('backtest-status-panel').classList.add('hidden'); }
     function updateBacktestStatus(status, progress, duration, message) {
         document.getElementById('backtest-status').textContent = status;
         document.getElementById('backtest-progress').textContent = progress;
         document.getElementById('backtest-duration').textContent = duration;
         if (message) {
-            const messagesDiv = document.getElementById('backtest-messages');
-            const messageElement = document.createElement('div');
-            messageElement.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-            messagesDiv.appendChild(messageElement);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            const div = document.getElementById('backtest-messages');
+            const el = document.createElement('div');
+            el.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            div.appendChild(el); div.scrollTop = div.scrollHeight;
         }
     }
 
+    // =========================================================
+    // Scanner Tab
+    // =========================================================
+    let currentScanDetail = null;
+    let scanPollInterval = null;
+
+    async function loadScanHistory() {
+        const tbody = document.getElementById('scan-history-table');
+        try {
+            const r = await fetch('/backtest/api/scanner/results');
+            const d = await r.json();
+            tbody.innerHTML = '';
+            if (!d.success || !d.scans || d.scans.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-500">No scans found. Start one above.</td></tr>';
+                return;
+            }
+            d.scans.forEach(s => {
+                const hitRate = s.total_symbols > 0 ? ((s.profitable_symbols / s.total_symbols) * 100).toFixed(1) : '0';
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-700/30 transition-colors cursor-pointer';
+                row.onclick = () => loadScanDetail(s.scan_id);
+                let sh = statusBadge(s.status);
+                row.innerHTML = `
+                    <td class="px-6 py-4 font-mono text-xs text-blue-400">${s.scan_id}</td>
+                    <td class="px-6 py-4 text-xs">${s.scan_timestamp || s.created_at || '-'}</td>
+                    <td class="px-6 py-4">${s.total_symbols}</td>
+                    <td class="px-6 py-4 text-emerald-400 font-bold">${s.profitable_symbols}</td>
+                    <td class="px-6 py-4">${hitRate}%</td>
+                    <td class="px-6 py-4">${sh}</td>
+                    <td class="px-6 py-4">
+                        <button onclick="event.stopPropagation(); loadScanDetail('${s.scan_id}')" class="text-blue-500 hover:text-blue-400 text-sm">
+                            <i class="fas fa-eye mr-1"></i> View
+                        </button>
+                    </td>`;
+                tbody.appendChild(row);
+            });
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-rose-400">Error loading scans: ${e.message}</td></tr>`;
+        }
+    }
+
+    async function loadScanDetail(scanId) {
+        try {
+            const r = await fetch(`/backtest/api/scanner/results/${scanId}`);
+            const d = await r.json();
+            if (!d.success) return;
+            currentScanDetail = d;
+
+            // Show detail panel
+            document.getElementById('scan-detail-panel').classList.remove('hidden');
+
+            // Summary cards
+            document.getElementById('scan-detail-profitable').textContent = d.profitable_symbols || 0;
+            document.getElementById('scan-detail-total').textContent = d.total_symbols || 0;
+            const hitRate = d.total_symbols > 0 ? ((d.profitable_symbols / d.total_symbols) * 100).toFixed(1) + '%' : '0%';
+            document.getElementById('scan-detail-hitrate').textContent = hitRate;
+
+            const results = d.symbol_results || [];
+            const profitable = results.filter(r => r.is_profitable);
+            const bestPnl = profitable.length > 0 ? Math.max(...profitable.map(r => r.test_pnl)) : 0;
+            document.getElementById('scan-detail-best').textContent = fmtRs(bestPnl);
+
+            // Profitable table
+            const profBody = document.getElementById('scan-profitable-table');
+            profBody.innerHTML = '';
+            if (profitable.length === 0) {
+                profBody.innerHTML = '<tr><td colspan="9" class="px-4 py-6 text-center text-slate-500">No profitable symbols in this scan</td></tr>';
+            } else {
+                profitable.sort((a,b) => (a.rank||999) - (b.rank||999));
+                profitable.forEach(s => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-slate-700/30 transition-colors';
+                    row.innerHTML = `
+                        <td class="px-4 py-3 text-amber-400 font-bold">#${s.rank}</td>
+                        <td class="px-4 py-3 font-medium text-white">${s.trading_symbol}</td>
+                        <td class="px-4 py-3 ${s.train_pnl>=0?'text-emerald-400':'text-rose-400'} font-bold">${fmtRs(s.train_pnl)}</td>
+                        <td class="px-4 py-3 ${s.test_pnl>=0?'text-emerald-400':'text-rose-400'} font-bold">${fmtRs(s.test_pnl)}</td>
+                        <td class="px-4 py-3">${(s.test_win_rate||0).toFixed(1)}%</td>
+                        <td class="px-4 py-3 text-rose-400">${(s.train_max_dd||0).toFixed(1)}%</td>
+                        <td class="px-4 py-3 text-rose-400">${(s.test_max_dd||0).toFixed(1)}%</td>
+                        <td class="px-4 py-3">${(s.train_trades||0)+(s.test_trades||0)}</td>
+                        <td class="px-4 py-3">
+                            <button onclick="addBatchSymbol('${s.symbol}','${s.trading_symbol}')" class="text-blue-400 hover:text-blue-300 text-xs font-bold">
+                                <i class="fas fa-plus mr-1"></i>Batch
+                            </button>
+                        </td>`;
+                    profBody.appendChild(row);
+                });
+            }
+
+            // All results table
+            renderAllScanResults(results);
+
+            // Scroll to detail
+            document.getElementById('scan-detail-panel').scrollIntoView({behavior:'smooth'});
+        } catch(e) {
+            console.error('Error loading scan detail:', e);
+        }
+    }
+
+    function renderAllScanResults(results) {
+        const tbody = document.getElementById('scan-all-results-table');
+        const showFail = document.getElementById('scan-show-failures').checked;
+        tbody.innerHTML = '';
+
+        let filtered = showFail ? results : results.filter(r => !r.error || r.is_profitable);
+        filtered.sort((a,b) => (b.test_pnl||0) - (a.test_pnl||0));
+
+        filtered.forEach(s => {
+            let statusHtml;
+            if (s.is_profitable) statusHtml = '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">PROFITABLE</span>';
+            else if (s.error) statusHtml = `<span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[10px] border border-rose-500/20" title="${s.error}">FAILED</span>`;
+            else statusHtml = '<span class="px-2 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px]">SKIP</span>';
+
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-slate-700/30 transition-colors';
+            row.innerHTML = `
+                <td class="px-4 py-3 text-white text-xs">${s.trading_symbol}</td>
+                <td class="px-4 py-3 ${(s.train_pnl||0)>=0?'text-emerald-400':'text-rose-400'}">${fmtRs(s.train_pnl||0)}</td>
+                <td class="px-4 py-3">${(s.train_win_rate||0).toFixed(0)}%</td>
+                <td class="px-4 py-3 text-rose-400">${(s.train_max_dd||0).toFixed(1)}%</td>
+                <td class="px-4 py-3 ${(s.test_pnl||0)>=0?'text-emerald-400':'text-rose-400'}">${fmtRs(s.test_pnl||0)}</td>
+                <td class="px-4 py-3">${(s.test_win_rate||0).toFixed(0)}%</td>
+                <td class="px-4 py-3 text-rose-400">${(s.test_max_dd||0).toFixed(1)}%</td>
+                <td class="px-4 py-3">${(s.train_trades||0)+(s.test_trades||0)}</td>
+                <td class="px-4 py-3">${statusHtml}</td>`;
+            tbody.appendChild(row);
+        });
+    }
+
+    function filterScanResults() {
+        if (currentScanDetail && currentScanDetail.symbol_results) {
+            renderAllScanResults(currentScanDetail.symbol_results);
+        }
+    }
+
+    async function startNewScan() {
+        const btn = document.getElementById('start-scan-btn');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Starting...';
+
+        try {
+            const r = await fetch('/backtest/api/scanner/start', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    train_start: document.getElementById('scan-train-start').value,
+                    train_end: document.getElementById('scan-train-end').value,
+                    test_start: document.getElementById('scan-test-start').value,
+                    test_end: document.getElementById('scan-test-end').value,
+                    timeframe: document.getElementById('scan-timeframe').value,
+                    limit: parseInt(document.getElementById('scan-limit').value) || 0,
+                })
+            });
+            const d = await r.json();
+            if (d.success) {
+                showScanProgress();
+                pollScanProgress(d.progress_id);
+            } else {
+                alert('Failed to start scan: ' + (d.error || 'Unknown error'));
+            }
+        } catch(e) {
+            alert('Error starting scan: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play mr-2"></i> Start Scan';
+        }
+    }
+
+    function showScanProgress() {
+        document.getElementById('scan-progress-panel').classList.remove('hidden');
+        document.getElementById('scan-progress-panel').scrollIntoView({behavior:'smooth'});
+    }
+
+    function pollScanProgress(progressId) {
+        if (scanPollInterval) clearInterval(scanPollInterval);
+        scanPollInterval = setInterval(async () => {
+            try {
+                const r = await fetch(`/backtest/api/scanner/progress/${progressId}`);
+                const d = await r.json();
+                if (!d.success) return;
+
+                const pct = d.total > 0 ? ((d.current / d.total) * 100).toFixed(1) : 0;
+                document.getElementById('scan-progress-pct').textContent = pct + '%';
+                document.getElementById('scan-progress-bar').style.width = pct + '%';
+                document.getElementById('scan-progress-detail').textContent = d.current_symbol ? `Processing: ${d.current_symbol}` : d.status;
+                document.getElementById('scan-progress-count').textContent = `${d.current} / ${d.total}`;
+
+                if (d.status === 'completed' || d.status.startsWith('failed')) {
+                    clearInterval(scanPollInterval);
+                    scanPollInterval = null;
+                    document.getElementById('scan-progress-panel').classList.add('hidden');
+                    loadScanHistory();
+                    if (d.scan_id) loadScanDetail(d.scan_id);
+                }
+            } catch(e) {}
+        }, 3000);
+    }
+
+    // =========================================================
+    // Batch Compare Tab
+    // =========================================================
+    let batchSymbols = []; // [{instrument_key, trading_symbol}]
+    let batchEquityChart = null;
+
+    function populateBatchSymbolList() {
+        const dl = document.getElementById('batch-symbol-list');
+        if (!dl) return;
+        dl.innerHTML = '';
+        Object.keys(symbolMap).forEach(label => {
+            const opt = document.createElement('option');
+            opt.value = label; dl.appendChild(opt);
+        });
+    }
+
+    function addBatchSymbol(instrumentKey, tradingSymbol) {
+        if (!instrumentKey) {
+            // From input
+            const input = document.getElementById('batch-symbol-input');
+            const label = input.value;
+            instrumentKey = symbolMap[label];
+            tradingSymbol = label;
+            if (!instrumentKey) { alert('Select a valid symbol from the list'); return; }
+            input.value = '';
+        }
+        // Prevent duplicates
+        if (batchSymbols.find(s => s.instrument_key === instrumentKey)) return;
+        batchSymbols.push({instrument_key: instrumentKey, trading_symbol: tradingSymbol});
+        renderBatchTags();
+    }
+
+    function removeBatchSymbol(instrumentKey) {
+        batchSymbols = batchSymbols.filter(s => s.instrument_key !== instrumentKey);
+        renderBatchTags();
+    }
+
+    function renderBatchTags() {
+        const container = document.getElementById('batch-symbols-tags');
+        const noMsg = document.getElementById('batch-no-symbols-msg');
+        container.innerHTML = '';
+        if (batchSymbols.length === 0) {
+            container.innerHTML = '<span class="text-slate-500 text-xs italic" id="batch-no-symbols-msg">No symbols selected. Add from search or scanner results.</span>';
+        } else {
+            batchSymbols.forEach(s => {
+                const tag = document.createElement('span');
+                tag.className = 'inline-flex items-center bg-blue-600/20 text-blue-400 px-3 py-1 rounded-lg text-xs font-bold border border-blue-500/20';
+                tag.innerHTML = `${s.trading_symbol} <button onclick="removeBatchSymbol('${s.instrument_key}')" class="ml-2 text-blue-300 hover:text-white"><i class="fas fa-times text-[8px]"></i></button>`;
+                container.appendChild(tag);
+            });
+        }
+        document.getElementById('batch-count').textContent = batchSymbols.length;
+    }
+
+    function addAllProfitableToBatch() {
+        if (!currentScanDetail || !currentScanDetail.symbol_results) {
+            alert('No scan results loaded. View a scan first.');
+            return;
+        }
+        const profitable = currentScanDetail.symbol_results.filter(r => r.is_profitable);
+        profitable.forEach(s => {
+            addBatchSymbol(s.symbol, s.trading_symbol);
+        });
+        // Switch to batch tab
+        switchTab('batch');
+    }
+
+    async function runBatch() {
+        if (batchSymbols.length === 0) {
+            alert('Add at least one symbol to run a batch comparison.');
+            return;
+        }
+
+        const startDate = document.getElementById('batch-start-date').value;
+        const endDate = document.getElementById('batch-end-date').value;
+        const timeframe = document.getElementById('batch-timeframe').value;
+        const capital = parseFloat(document.getElementById('batch-capital').value);
+
+        const btn = document.getElementById('run-batch-btn');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Running...';
+
+        const progressPanel = document.getElementById('batch-progress-panel');
+        const progressLog = document.getElementById('batch-progress-log');
+        progressPanel.classList.remove('hidden');
+        progressLog.innerHTML = '';
+        document.getElementById('batch-progress-bar').style.width = '0%';
+        document.getElementById('batch-progress-pct').textContent = '0%';
+
+        const results = [];
+        const totalRuns = batchSymbols.length;
+
+        for (let i = 0; i < batchSymbols.length; i++) {
+            const sym = batchSymbols[i];
+            const pct = ((i / totalRuns) * 100).toFixed(0);
+            document.getElementById('batch-progress-bar').style.width = pct + '%';
+            document.getElementById('batch-progress-pct').textContent = pct + '%';
+            appendLog(progressLog, `[${i+1}/${totalRuns}] Running ${sym.trading_symbol}...`);
+
+            try {
+                const r = await fetch('/backtest/api/run', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        strategy_id: 'pixityAI_meta', symbol: sym.instrument_key,
+                        capital: capital, start_date: startDate, end_date: endDate,
+                        timeframe: timeframe
+                    })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    // Wait for completion
+                    const runResult = await waitForRunCompletion(d.run_id);
+                    results.push({symbol: sym.trading_symbol, run_id: d.run_id, ...runResult});
+                    const statusMsg = runResult.status === 'COMPLETED'
+                        ? `${sym.trading_symbol}: PnL ${fmtRs(runResult.total_pnl||0)}, WR ${((runResult.win_rate||0)*100).toFixed(0)}%, ${runResult.total_trades||0} trades`
+                        : `${sym.trading_symbol}: ${runResult.status}`;
+                    appendLog(progressLog, `  -> ${statusMsg}`);
+                } else {
+                    results.push({symbol: sym.trading_symbol, run_id: null, status: 'FAILED', error: d.error});
+                    appendLog(progressLog, `  -> FAILED: ${d.error}`);
+                }
+            } catch(e) {
+                results.push({symbol: sym.trading_symbol, run_id: null, status: 'ERROR', error: e.message});
+                appendLog(progressLog, `  -> ERROR: ${e.message}`);
+            }
+        }
+
+        document.getElementById('batch-progress-bar').style.width = '100%';
+        document.getElementById('batch-progress-pct').textContent = '100%';
+        appendLog(progressLog, `\nBatch complete: ${results.filter(r=>r.status==='COMPLETED').length}/${totalRuns} successful`);
+
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-play mr-2"></i> Run Batch (<span id="batch-count">${batchSymbols.length}</span> symbols)`;
+
+        renderBatchResults(results);
+        loadRecentRuns(); // Refresh runs table too
+    }
+
+    async function waitForRunCompletion(runId, maxWait=600000) {
+        const start = Date.now();
+        while (Date.now() - start < maxWait) {
+            await sleep(3000);
+            try {
+                const r = await fetch('/backtest/api/runs');
+                const d = await r.json();
+                if (d.success && d.runs) {
+                    const run = d.runs.find(r => r.run_id === runId);
+                    if (run && (run.status === 'COMPLETED' || run.status === 'FAILED')) {
+                        return run;
+                    }
+                }
+            } catch(e) {}
+        }
+        return {status: 'TIMEOUT'};
+    }
+
+    function renderBatchResults(results) {
+        const panel = document.getElementById('batch-results-panel');
+        const tbody = document.getElementById('batch-results-table');
+        panel.classList.remove('hidden');
+        tbody.innerHTML = '';
+
+        results.sort((a,b) => (b.total_pnl||0) - (a.total_pnl||0));
+        results.forEach(r => {
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-slate-700/30 transition-colors';
+            const pnlCls = (r.total_pnl||0) >= 0 ? 'text-emerald-400' : 'text-rose-400';
+            const wr = r.win_rate ? (r.win_rate * 100).toFixed(0) + '%' : '-';
+            const dd = r.max_drawdown ? r.max_drawdown.toFixed(1) + '%' : '-';
+            const pf = r.profit_factor ? r.profit_factor.toFixed(2) : '-';
+            row.innerHTML = `
+                <td class="px-4 py-3 font-medium text-white">${r.symbol}</td>
+                <td class="px-4 py-3 font-bold ${pnlCls}">${fmtRs(r.total_pnl||0)}</td>
+                <td class="px-4 py-3">${wr}</td>
+                <td class="px-4 py-3 text-rose-400">${dd}</td>
+                <td class="px-4 py-3">${r.total_trades||0}</td>
+                <td class="px-4 py-3">${pf}</td>
+                <td class="px-4 py-3">${statusBadge(r.status)}</td>`;
+            tbody.appendChild(row);
+        });
+
+        // Load equity curves for completed runs
+        loadBatchEquityCurves(results.filter(r => r.status === 'COMPLETED' && r.run_id));
+    }
+
+    async function loadBatchEquityCurves(completedResults) {
+        if (completedResults.length === 0) return;
+        const chartPanel = document.getElementById('batch-chart-panel');
+        chartPanel.classList.remove('hidden');
+
+        const series = [];
+        const colors = ['#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+
+        for (let i = 0; i < completedResults.length; i++) {
+            const r = completedResults[i];
+            try {
+                const resp = await fetch(`/backtest/api/runs/${r.run_id}/trades`);
+                const d = await resp.json();
+                if (d.success && d.trades && d.trades.length > 0) {
+                    let eq = 100000; // normalize to same starting capital
+                    const data = [{x: new Date(d.trades[0].entry_ts).getTime()-60000, y: eq}];
+                    [...d.trades].sort((a,b)=>new Date(a.exit_ts)-new Date(b.exit_ts)).forEach(t => {
+                        eq += (t.pnl - (t.fees||0));
+                        data.push({x: new Date(t.exit_ts).getTime(), y: parseFloat(eq.toFixed(2))});
+                    });
+                    series.push({name: r.symbol, data});
+                }
+            } catch(e) {}
+        }
+
+        if (batchEquityChart) batchEquityChart.destroy();
+        batchEquityChart = new ApexCharts(document.querySelector("#batch-equity-chart"), {
+            series, chart: {type:'line', height:400, toolbar:{show:true}, background:'transparent'},
+            stroke: {curve:'smooth', width:2}, colors: colors.slice(0, series.length),
+            xaxis: {type:'datetime', labels:{style:{colors:'#64748b'}}},
+            yaxis: {labels:{style:{colors:'#64748b'}, formatter: v => fmtRs(v)}},
+            grid: {borderColor:'#334155'}, theme: {mode:'dark'},
+            legend: {position:'top', labels:{colors:'#94a3b8'}},
+            tooltip: {shared:true, y:{formatter: v => fmtRs(v)}}
+        });
+        batchEquityChart.render();
+    }
+
+    // =========================================================
+    // Utilities
+    // =========================================================
+    function fmtRs(val) {
+        if (val === null || val === undefined) return '-';
+        return '\u20B9' + Number(val).toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+    }
+
+    function statusBadge(status) {
+        if (status === 'COMPLETED') return '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">COMPLETED</span>';
+        if (status === 'RUNNING') return '<span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20"><i class="fas fa-spinner fa-spin mr-1"></i>RUNNING</span>';
+        if (status === 'FAILED') return '<span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[10px] font-bold border border-rose-500/20">FAILED</span>';
+        return `<span class="px-2 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px]">${status||'UNKNOWN'}</span>`;
+    }
+
+    function appendLog(container, text) {
+        const line = document.createElement('div');
+        line.textContent = text;
+        container.appendChild(line);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    
+    // =========================================================
+    // Portfolio Mode Functions
+    // =========================================================
+    function togglePortfolioMode() {
+        const portfolioToggle = document.getElementById('portfolio-mode-toggle');
+        const portfolioSettings = document.getElementById('portfolio-settings');
+        
+        if (portfolioToggle.checked) {
+            portfolioSettings.classList.remove('hidden');
+        } else {
+            portfolioSettings.classList.add('hidden');
+        }
+    }
+    
+    function updateSliderValue(slider, valueDisplayId) {
+        const valueDisplay = document.getElementById(valueDisplayId);
+        valueDisplay.textContent = slider.value;
+    }
+    
+    async function runPortfolio() {
+        if (batchSymbols.length === 0) {
+            alert('Add at least one symbol to run a portfolio backtest.');
+            return;
+        }
+
+        const startDate = document.getElementById('batch-start-date').value;
+        const endDate = document.getElementById('batch-end-date').value;
+        const timeframe = document.getElementById('batch-timeframe').value;
+        const totalCapital = parseFloat(document.getElementById('batch-capital').value);
+        const allocationMethod = document.getElementById('allocation-method').value;
+        const maxConcurrentPositions = parseInt(document.getElementById('max-concurrent-slider').value);
+
+        const btn = document.getElementById('run-batch-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Running Portfolio...';
+
+        const progressPanel = document.getElementById('batch-progress-panel');
+        const progressLog = document.getElementById('batch-progress-log');
+        progressPanel.classList.remove('hidden');
+        progressLog.innerHTML = '';
+        document.getElementById('batch-progress-bar').style.width = '0%';
+        document.getElementById('batch-progress-pct').textContent = '0%';
+
+        try {
+            const response = await fetch('/backtest/api/portfolio/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    symbols: batchSymbols,
+                    start_date: startDate,
+                    end_date: endDate,
+                    total_capital: totalCapital,
+                    timeframe: timeframe,
+                    allocation_method: allocationMethod,
+                    max_concurrent_positions: maxConcurrentPositions
+                })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                appendLog(progressLog, `Portfolio backtest started: ${result.run_id}`);
+                
+                // Wait for completion
+                const runResult = await waitForRunCompletion(result.run_id);
+                appendLog(progressLog, `Portfolio backtest completed: ${runResult.status}`);
+                
+                // Load portfolio results
+                if (runResult.status === 'COMPLETED') {
+                    loadPortfolioResults(result.run_id);
+                }
+            } else {
+                appendLog(progressLog, `Error: ${result.message || result.error}`);
+            }
+        } catch (error) {
+            appendLog(progressLog, `Error: ${error.message}`);
+        }
+
+        document.getElementById('batch-progress-bar').style.width = '100%';
+        document.getElementById('batch-progress-pct').textContent = '100%';
+        
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-play mr-2"></i> Run Batch (<span id="batch-count">${batchSymbols.length}</span> symbols)`;
+    }
+    
+    async function loadPortfolioResults(runId) {
+        try {
+            // Load portfolio metrics
+            const metricsResponse = await fetch(`/backtest/api/portfolio/${runId}/metrics`);
+            const metricsData = await metricsResponse.json();
+            
+            if (metricsData.success) {
+                // Display portfolio summary
+                const panel = document.getElementById('batch-results-panel');
+                const tbody = document.getElementById('batch-results-table');
+                panel.classList.remove('hidden');
+                tbody.innerHTML = '';
+                
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-700/30 transition-colors';
+                const pnlCls = (metricsData.metrics.total_pnl || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                const wr = metricsData.metrics.win_rate ? (metricsData.metrics.win_rate * 100).toFixed(0) + '%' : '-';
+                const dd = metricsData.metrics.max_drawdown ? (metricsData.metrics.max_drawdown * 100).toFixed(1) + '%' : '-';
+                const trades = metricsData.metrics.total_trades || 0;
+                const sharpe = metricsData.metrics.sharpe_ratio ? metricsData.metrics.sharpe_ratio.toFixed(2) : '-';
+                
+                row.innerHTML = `
+                    <td class="px-4 py-3 font-medium text-white">PORTFOLIO</td>
+                    <td class="px-4 py-3 font-bold ${pnlCls}">${fmtRs(metricsData.metrics.total_pnl || 0)}</td>
+                    <td class="px-4 py-3">${wr}</td>
+                    <td class="px-4 py-3 text-rose-400">${dd}</td>
+                    <td class="px-4 py-3">${trades}</td>
+                    <td class="px-4 py-3">${sharpe}</td>
+                    <td class="px-4 py-3">${statusBadge('COMPLETED')}</td>`;
+                tbody.appendChild(row);
+                
+                // Load equity curve
+                loadPortfolioEquityCurve(runId);
+            }
+        } catch (error) {
+            console.error('Error loading portfolio results:', error);
+        }
+    }
+    
+    async function loadPortfolioEquityCurve(runId) {
+        try {
+            const response = await fetch(`/backtest/api/runs/${runId}/trades`);
+            const data = await response.json();
+            
+            if (data.success && data.trades && data.trades.length > 0) {
+                let eq = 100000; // normalize to same starting capital
+                const equityData = [{x: new Date(data.trades[0].entry_ts).getTime() - 60000, y: eq}];
+                
+                [...data.trades].sort((a, b) => new Date(a.exit_ts) - new Date(b.exit_ts)).forEach(t => {
+                    eq += (t.pnl - (t.fees || 0));
+                    equityData.push({x: new Date(t.exit_ts).getTime(), y: parseFloat(eq.toFixed(2))});
+                });
+                
+                const chartPanel = document.getElementById('batch-chart-panel');
+                chartPanel.classList.remove('hidden');
+                
+                if (batchEquityChart) batchEquityChart.destroy();
+                
+                batchEquityChart = new ApexCharts(document.querySelector("#batch-equity-chart"), {
+                    series: [{name: 'Portfolio Equity', data: equityData}],
+                    chart: {type: 'line', height: 400, toolbar: {show: true}, background: 'transparent'},
+                    stroke: {curve: 'smooth', width: 3}, colors: ['#10b981'],
+                    xaxis: {type: 'datetime', labels: {style: {colors: '#64748b'}}},
+                    yaxis: {labels: {style: {colors: '#64748b'}, formatter: v => fmtRs(v)}},
+                    grid: {borderColor: '#334155'}, theme: {mode: 'dark'},
+                    legend: {position: 'top', labels: {colors: '#94a3b8'}},
+                    tooltip: {shared: true, y: {formatter: v => fmtRs(v)}}
+                });
+                batchEquityChart.render();
+            }
+        } catch (error) {
+            console.error('Error loading portfolio equity curve:', error);
+        }
+    }
+    
+    // Override the runBatch function to handle both modes
+    async function runBatch() {
+        const portfolioModeEnabled = document.getElementById('portfolio-mode-toggle').checked;
+        
+        if (portfolioModeEnabled) {
+            runPortfolio();
+        } else {
+            // Original batch functionality
+            if (batchSymbols.length === 0) {
+                alert('Add at least one symbol to run a batch comparison.');
+                return;
+            }
+
+            const startDate = document.getElementById('batch-start-date').value;
+            const endDate = document.getElementById('batch-end-date').value;
+            const timeframe = document.getElementById('batch-timeframe').value;
+            const capital = parseFloat(document.getElementById('batch-capital').value);
+
+            const btn = document.getElementById('run-batch-btn');
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Running...';
+
+            const progressPanel = document.getElementById('batch-progress-panel');
+            const progressLog = document.getElementById('batch-progress-log');
+            progressPanel.classList.remove('hidden');
+            progressLog.innerHTML = '';
+            document.getElementById('batch-progress-bar').style.width = '0%';
+            document.getElementById('batch-progress-pct').textContent = '0%';
+
+            const results = [];
+            const totalRuns = batchSymbols.length;
+
+            for (let i = 0; i < batchSymbols.length; i++) {
+                const sym = batchSymbols[i];
+                const pct = ((i / totalRuns) * 100).toFixed(0);
+                document.getElementById('batch-progress-bar').style.width = pct + '%';
+                document.getElementById('batch-progress-pct').textContent = pct + '%';
+                appendLog(progressLog, `[${i+1}/${totalRuns}] Running ${sym.trading_symbol}...`);
+
+                try {
+                    const r = await fetch('/backtest/api/run', {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({
+                            strategy_id: 'pixityAI_meta', symbol: sym.instrument_key,
+                            capital: capital, start_date: startDate, end_date: endDate,
+                            timeframe: timeframe
+                        })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        // Wait for completion
+                        const runResult = await waitForRunCompletion(d.run_id);
+                        results.push({symbol: sym.trading_symbol, run_id: d.run_id, ...runResult});
+                        const statusMsg = runResult.status === 'COMPLETED'
+                            ? `${sym.trading_symbol}: PnL ${fmtRs(runResult.total_pnl||0)}, WR ${((runResult.win_rate||0)*100).toFixed(0)}%, ${runResult.total_trades||0} trades`
+                            : `${sym.trading_symbol}: ${runResult.status}`;
+                        appendLog(progressLog, `  -> ${statusMsg}`);
+                    } else {
+                        results.push({symbol: sym.trading_symbol, run_id: null, status: 'FAILED', error: d.error});
+                        appendLog(progressLog, `  -> FAILED: ${d.error}`);
+                    }
+                } catch(e) {
+                    results.push({symbol: sym.trading_symbol, run_id: null, status: 'ERROR', error: e.message});
+                    appendLog(progressLog, `  -> ERROR: ${e.message}`);
+                }
+            }
+
+            document.getElementById('batch-progress-bar').style.width = '100%';
+            document.getElementById('batch-progress-pct').textContent = '100%';
+            appendLog(progressLog, `\nBatch complete: ${results.filter(r=>r.status==='COMPLETED').length}/${totalRuns} successful`);
+
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fas fa-play mr-2"></i> Run Batch (<span id="batch-count">${batchSymbols.length}</span> symbols)`;
+
+            renderBatchResults(results);
+            loadRecentRuns(); // Refresh runs table too
+        }
+    }
 </script>
 {% endblock %}
 {% endblock %}

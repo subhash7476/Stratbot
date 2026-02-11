@@ -37,6 +37,16 @@
           "estimation_window_days": 60,
           "refit_frequency": "weekly"
         }
+      },
+      {
+        "name": "gmm_regime",
+        "enabled": false,
+        "weight": 0.3,
+        "params": {
+          "n_regimes": 3,
+          "feature_window": 20,
+          "vol_window": 20
+        }
       }
     ]
   },

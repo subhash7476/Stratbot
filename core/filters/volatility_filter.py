@@ -75,7 +75,7 @@ class VolatilityRegimeFilter(BaseSignalFilter):
                 self._update_ewma(ret)
 
         # Calculate current volatility (annualized bps)
-        self.current_volatility = self._variance_to_bps(self.ewma_variance)
+        self.current_volatility = self._variance_to_bps(self.ewma_variance, None)
 
         logger.info(
             f"[{self.filter_name}] Initialized. Current volatility: {self.current_volatility:.1f} bps "
@@ -108,7 +108,7 @@ class VolatilityRegimeFilter(BaseSignalFilter):
 
         latest_return = (recent_prices.iloc[-1] / recent_prices.iloc[-2]) - 1.0
         self._update_ewma(latest_return)
-        self.current_volatility = self._variance_to_bps(self.ewma_variance)
+        self.current_volatility = self._variance_to_bps(self.ewma_variance, context)
 
         # Decision logic
         too_low = self.current_volatility < self.min_volatility_bps
@@ -177,15 +177,13 @@ class VolatilityRegimeFilter(BaseSignalFilter):
             (1 - self.ewma_alpha) * (return_value ** 2)
         )
 
-    def _variance_to_bps(self, variance: float) -> float:
+    def _variance_to_bps(self, variance: float, context: FilterContext = None) -> float:
         """
         Convert variance to annualized volatility in basis points.
 
-        Assumes data is at bar frequency (e.g., 15-min bars).
-        Annualization factor depends on trading hours (6.25 hours/day, 252 days/year).
-
         Args:
             variance: Per-period variance
+            context: Filter context containing signal metadata for bar frequency
 
         Returns:
             Annualized volatility in basis points (1 bps = 0.01%)
@@ -193,9 +191,15 @@ class VolatilityRegimeFilter(BaseSignalFilter):
         # Volatility (std dev)
         vol = np.sqrt(variance)
 
-        # Annualize (assuming 15-min bars: 25 bars/day, 252 days/year)
-        # Adjust this if using different timeframe
-        bars_per_day = 25  # 6.25 hours / 0.25 hours (15 min)
+        # Determine bars per day from signal metadata if available
+        if context and 'bar_minutes' in context.signal.metadata:
+            bar_minutes = context.signal.metadata.get("bar_minutes", 15)
+        else:
+            # Default to 15 minutes if not specified in metadata
+            bar_minutes = 15
+        
+        # Calculate bars per day based on trading hours (6.25 hours/day)
+        bars_per_day = int(375 / bar_minutes)  # 375 = NSE trading minutes per day (6.25 * 60)
         bars_per_year = bars_per_day * 252
         vol_annualized = vol * np.sqrt(bars_per_year)
 

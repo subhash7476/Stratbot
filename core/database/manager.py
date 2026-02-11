@@ -303,6 +303,38 @@ class DatabaseManager:
             conn.close()
 
     # ─────────────────────────────────────────────────────────────
+    # SCANNER INDEX (SQLite)
+    # ─────────────────────────────────────────────────────────────
+
+    @contextmanager
+    def scanner_writer(self) -> Generator[sqlite3.Connection, None, None]:
+        db_path = self.data_root / "scanner" / "scanner_index.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with self._get_thread_lock('scanner_index'):
+            conn = sqlite3.connect(str(db_path))
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    @contextmanager
+    def scanner_reader(self) -> Generator[sqlite3.Connection, None, None]:
+        db_path = self.data_root / "scanner" / "scanner_index.db"
+        if not db_path.exists():
+            raise FileNotFoundError(f"Scanner index not found: {db_path}")
+
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    # ─────────────────────────────────────────────────────────────
     # CONFIG DATABASE (SQLite)
     # ─────────────────────────────────────────────────────────────
 

@@ -252,6 +252,46 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
 );
 """
 
+# ─────────────────────────────────────────────────────────────
+# SCANNER (SQLite)
+# ─────────────────────────────────────────────────────────────
+
+SCANNER_RESULTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS scanner_results (
+    scan_id TEXT PRIMARY KEY,
+    scan_timestamp DATETIME,
+    total_symbols INTEGER,
+    profitable_symbols INTEGER DEFAULT 0,
+    scan_params TEXT,
+    status TEXT DEFAULT 'RUNNING',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+SCANNER_SYMBOL_RESULTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS scanner_symbol_results (
+    scan_id TEXT,
+    symbol TEXT,
+    trading_symbol TEXT,
+    train_pnl DOUBLE,
+    train_trades INTEGER,
+    train_win_rate DOUBLE,
+    train_max_dd DOUBLE,
+    train_run_id TEXT,
+    train_status TEXT,
+    test_pnl DOUBLE,
+    test_trades INTEGER,
+    test_win_rate DOUBLE,
+    test_max_dd DOUBLE,
+    test_run_id TEXT,
+    test_status TEXT,
+    is_profitable BOOLEAN DEFAULT 0,
+    rank INTEGER DEFAULT 0,
+    error TEXT,
+    PRIMARY KEY (scan_id, symbol)
+);
+"""
+
 BACKTEST_RUN_TRADES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS trades (
     trade_id TEXT PRIMARY KEY,

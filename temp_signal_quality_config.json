@@ -1,0 +1,62 @@
+{
+  "signal_quality_pipeline": {
+    "enabled": true,
+    "mode": "SEQUENTIAL",
+    "min_confidence_threshold": 0.6,
+    "filters": [
+      {
+        "name": "kalman",
+        "enabled": false,
+        "weight": 0.4,
+        "params": {
+          "lookback_periods": 50,
+          "min_signal_noise_ratio": 2.0,
+          "trend_alignment_required": true,
+          "process_variance": 0.01,
+          "measurement_variance": 0.1
+        }
+      },
+      {
+        "name": "volatility",
+        "enabled": false,
+        "weight": 0.3,
+        "params": {
+          "method": "garch_kalman",
+          "min_volatility_bps": 75,
+          "max_volatility_bps": 500,
+          "lookback_days": 20,
+          "ewma_alpha": 0.94
+        }
+      },
+      {
+        "name": "ou_reversion",
+        "enabled": true,
+        "weight": 0.3,
+        "params": {
+          "min_mean_reversion_speed": 0.5,
+          "estimation_window_days": 60,
+          "refit_frequency": "weekly",
+          "estimation_window_bars": 200,
+          "distance_threshold_sigma": 0.5
+        }
+      },
+      {
+        "name": "gmm_regime",
+        "enabled": false,
+        "weight": 0.3,
+        "params": {
+          "n_regimes": 3,
+          "feature_window": 20,
+          "vol_window": 20
+        }
+      }
+    ]
+  },
+  "_comments": {
+    "mode": "SEQUENTIAL = stop at first reject | AND = all must pass | OR = any can pass | WEIGHTED = score-based",
+    "min_volatility_bps": "Minimum 0.75% volatility to overcome fee impact (Rs 20 + 0.025% STT)",
+    "max_volatility_bps": "Skip if volatility > 5% (too wild)",
+    "min_signal_noise_ratio": "Kalman signal strength must be 2x noise",
+    "trend_alignment_required": "Kalman trend must align with signal direction"
+  }
+}

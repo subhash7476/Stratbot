@@ -171,7 +171,7 @@ def run_single_backtest(
         return None, {"error": str(e)}
 
 
-def compare_results(results: dict):
+def compare_results(results: dict, filter_configs: list):
     """Generate comparison table of backtest results."""
     logger.info("\n" + "="*100)
     logger.info("COMPARATIVE RESULTS")
@@ -190,7 +190,7 @@ def compare_results(results: dict):
             logger.info("-" * 100)
 
             # Get all configs for this symbol + period
-            for config in FILTER_CONFIGS:
+            for config in filter_configs:
                 key = (symbol, period_name, config['name'])
                 if key not in results:
                     continue
@@ -269,7 +269,7 @@ def main():
                 results[key] = metrics
 
     # Generate comparison
-    compare_results(results)
+    compare_results(results, filter_configs)
 
     # Cleanup temp configs
     temp_dir = Path("core/models/temp")

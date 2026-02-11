@@ -1,7 +1,7 @@
 # Signal Quality Filter System - Implementation Summary
 
-**Date**: February 9, 2026
-**Status**: ✅ **Phase 1 & 2 Complete** (Kalman + Volatility filters implemented)
+**Date**: February 10, 2026
+**Status**: **NOT PRODUCTION-READY** — Kalman filter failed full walk-forward validation
 
 ---
 
@@ -233,25 +233,43 @@ run_id = runner.run(
 
 ---
 
-## 📊 Actual Backtest Results ✅
+## 📊 Full Walk-Forward Backtest Results
 
-**Test Setup**: Tata Power (INE155A01022), Jun-Dec 2025, 15m timeframe
+**Setup**: 2 symbols x 2 periods x 5 configs = 20 backtests (17/20 completed)
+**Script**: `scripts/compare_filters_backtest.py`
 
-| Configuration | Trades | Win Rate | Net PnL | Max DD | vs Baseline |
-|--------------|--------|----------|---------|--------|-------------|
-| **Baseline (no filter)** | 50 | 60.0% | ₹20,565 | 9.5% | — |
-| **Kalman S/N=1.5** | 50 | 58.0% | ₹21,166 | 6.9% | +₹601 (+2.9%) |
-| **Kalman S/N=2.0** | 50 | 58.0% | ₹21,166 | 6.9% | +₹601 (+2.9%) |
+### Tata Power (INE155A01022)
 
-**Key Insights**:
-1. 📊 **Qualitative Filtering**: Same trade count (50), but better trade quality
-   - Kalman filter improved *which* signals were accepted, not *how many*
-2. ✅ **+2.9% PnL Improvement**: ₹20,565 → ₹21,166 (qualitative edge)
-3. 📉 **-27% Drawdown Reduction**: 9.5% → 6.9% (better risk management)
-4. 🎯 **Win Rate**: Slight decrease (60% → 58%) but better risk-adjusted returns
-5. 🔧 **S/N Threshold**: 1.5 and 2.0 performed identically (both rejected same low-quality signals)
+| Config | Train (Oct24-May25) PnL | Train DD | Test (Jun-Dec25) PnL | Test DD |
+|--------|---:|---:|---:|---:|
+| **Baseline** | ₹8,873 | 10.1% | ₹20,565 | 9.5% |
+| **Meta-Model** | ₹8,873 (0%) | 10.1% | ₹20,565 (0%) | 9.5% |
+| **Kalman S/N=1.5** | **₹-5,823 (-166%)** | **98.4%** | ₹21,166 (+2.9%) | 6.9% |
+| **Kalman S/N=2.0** | **₹-6,109 (-169%)** | **96.0%** | ₹21,166 (+2.9%) | 6.9% |
+| **Kalman S/N=2.5** | **₹-6,109 (-169%)** | **96.0%** | ₹19,675 (-4.3%) | 6.9% |
 
-**Conclusion**: Kalman filter provides risk-adjusted improvement by filtering *qualitatively* rather than *quantitatively*.
+### Bajaj Finance (INE118H01025)
+
+| Config | Train (Oct24-May25) PnL | Train DD | Test (Jun-Dec25) PnL | Test DD |
+|--------|---:|---:|---:|---:|
+| **Baseline** | ₹6,973 | 5.9% | ₹7,796 | 7.7% |
+| **Meta-Model** | ₹6,973 (0%) | 5.9% | ₹7,796 (0%) | 7.7% |
+| **Kalman S/N=1.5** | ₹8,030 (+15.2%) | **3.6%** | *(pending)* | |
+| **Kalman S/N=2.0** | ₹8,030 (+15.2%) | **3.6%** | *(pending)* | |
+| **Kalman S/N=2.5** | ₹2,763 (-60.4%) | 3.6% | *(pending)* | |
+
+### Critical Findings
+
+1. **Meta-Model = Baseline** in ALL 8 completed tests (0% difference) — definitively useless, confirms MEMORY.md
+2. **Kalman filter is regime-dependent**: catastrophic on Tata Power Train (-169% PnL, 96% DD), helpful on Test (+2.9% PnL, -27% DD)
+3. **Bajaj Finance shows more robust improvement**: +15% PnL, -39% DD in training period
+4. **S/N=2.5 is too strict** — hurts PnL everywhere
+5. **S/N=1.5 and S/N=2.0 perform identically** — both reject same signals
+6. **Drawdown reduction is more consistent than PnL improvement** — Bajaj Finance 5.9%→3.6% DD across all Kalman configs
+
+### Verdict: NOT PRODUCTION-READY
+
+The Kalman filter shows inconsistent results across periods and symbols. The catastrophic failure on Tata Power Train (96% DD) means the filter cannot be trusted in production without significant redesign. The filter needs adaptive regime detection to avoid destroying value in hostile market conditions.
 
 ---
 
@@ -352,17 +370,18 @@ docs/
 **Use Case**: Symbol selection (rank by reversion speed θ)
 
 ### Phase 4: Validation & Tuning
-1. ✅ Complete quick comparison (3 configs, running now)
-2. ⏳ Run full walk-forward analysis (20 backtests)
-3. ⏳ Analyze results, optimize thresholds
-4. ⏳ Test combined filters (Kalman + Volatility)
-5. ⏳ Update MEMORY.md with validated config
+1. ✅ Quick comparison (3 configs, 1 symbol, test period) — showed +2.9% PnL
+2. ✅ Full walk-forward (20 backtests) — **REVEALED REGIME-DEPENDENCY**
+3. ✅ S/N=1.5 and S/N=2.0 identical; S/N=2.5 too strict
+4. ❌ Filter NOT production-ready — catastrophic on Tata Power Train
+5. ✅ MEMORY.md updated with corrected findings
 
-### Phase 5: Production Deployment
-1. Enable in live trading config
-2. Add real-time telemetry (filter rejection tracking)
-3. A/B test: 50% trades with filter, 50% without
-4. Monitor for 2-4 weeks, validate improvements
+### Phase 5: Redesign Required (Before Production)
+1. **Investigate regime-dependency** — why does filter fail Oct24-Mar25 on Tata Power?
+2. **Add adaptive regime detection** — filter should disable itself in hostile conditions
+3. **Consider symbol-specific enabling** — may work for Bajaj Finance but not Tata Power
+4. **Test volatility filter** — may provide more robust improvement than Kalman alone
+5. **Combined Kalman + Volatility** — volatility gate could prevent Kalman from trading in wrong regime
 
 ---
 
@@ -420,15 +439,25 @@ docs/
 - [x] **Volatility Filter**: EWMA vol estimation implemented
 - [x] **Integration**: Works with backtester + event generator
 - [x] **Testing**: Demo scripts validate functionality
-- [x] **Validation**: Quick backtest confirms +2.9% PnL, -27% DD improvement ✅
-- [x] **Documentation**: Architecture + usage guides complete ✅
-- [ ] **Production**: Enabled in live trading (pending full walk-forward)
+- [x] **Validation**: Quick test showed improvement, full walk-forward revealed regime-dependency
+- [x] **Documentation**: Architecture + usage guides complete
+- [ ] **Production**: BLOCKED — filter not robust enough, needs redesign
 
 ---
 
-**Status**: ✅ **Phase 1-3 Complete & Validated**
-**Results**: Kalman filter confirmed +2.9% PnL, -27% drawdown improvement
+**Status**: **INFRASTRUCTURE COMPLETE, FILTER LOGIC NEEDS REDESIGN**
+
+**What Works**:
+- Pipeline infrastructure (modular, config-driven, extensible)
+- Meta-model definitively ruled out (identical to baseline in all tests)
+- Bajaj Finance shows promising Kalman results (need test period confirmation)
+
+**What Failed**:
+- Kalman filter catastrophically fails on Tata Power Train period (96% DD)
+- Single-period validation was misleading — full walk-forward exposed the issue
+
 **Next Steps**:
-1. Run full walk-forward analysis (20 backtests) for comprehensive validation
-2. Test Kalman + Volatility combined filters
-3. Consider enabling in production with A/B testing
+1. Investigate regime-dependency root cause
+2. Add adaptive regime detection / volatility gating
+3. Consider symbol-specific filter configs
+4. Test volatility filter independently

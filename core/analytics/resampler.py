@@ -29,6 +29,7 @@ def resample_ohlcv(df_1m: pd.DataFrame, target_tf: str) -> pd.DataFrame:
     # Map common timeframes to pandas frequency strings
     tf_map = {
         '5m': '5min',
+        '10m': '10min',
         '15m': '15min',
         '30m': '30min',
         '1h': '60min',

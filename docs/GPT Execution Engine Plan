@@ -1,0 +1,357 @@
+Perfect choice 👍
+Below is a **phase-wise execution engine plan**, written exactly the way you can **hand it to your coder** and then walk through **one phase at a time**.
+
+This is deliberately **equity/futures-first**, minimal, and disciplined — so options later become an *extension*, not a rewrite.
+
+---
+
+# 📘 EXECUTION ENGINE — PHASE-WISE IMPLEMENTATION PLAN
+
+## GOAL OF THIS PLAN
+
+Build a **production-grade execution engine** that:
+
+* consumes strategy signals
+* becomes the **single authority** for trading
+* supports equities & futures
+* is deterministic, auditable, and testable
+* forms the foundation for **options later**
+
+---
+
+# 🟢 PHASE 0 — Execution Invariants (MANDATORY)
+
+**Objective**
+Lock down rules so execution logic never leaks elsewhere.
+
+### Non-Negotiable Rules
+
+1. Strategies emit **signals only**
+2. Execution decides:
+
+   * if a trade happens
+   * how big
+   * via which broker
+3. Brokers never apply risk logic
+4. UI never places raw orders
+5. Positions are owned by execution only
+
+📄 **Deliverable**
+
+* `docs/execution_invariants.md`
+
+✅ No code yet.
+
+---
+
+# 🟢 PHASE 1 — Signal Intake & Normalized Order Model
+
+**Objective**
+Create a clean boundary between **strategy intent** and **execution reality**.
+
+### What to build
+
+```
+core/execution/
+  ├── execution_engine.py
+  ├── order_models.py
+  └── order_factory.py
+```
+
+### Responsibilities
+
+* accept `SignalEvent`
+* validate signal completeness
+* convert signal → **NormalizedOrder**
+* attach metadata:
+
+  * strategy_id
+  * timestamp
+  * correlation_id
+
+### Explicitly NOT included
+
+* broker calls
+* risk logic
+* sizing logic
+
+📌 **Acceptance Criteria**
+
+* Strategies remain unchanged
+* Signals can be converted into orders deterministically
+* Orders are serializable & auditable
+
+---
+
+# 🟢 PHASE 2 — Risk Management Layer
+
+**Objective**
+Prevent bad trades *before* they reach the broker.
+
+### What to build
+
+```
+core/execution/
+  └── risk_manager.py
+```
+
+### Initial risk checks (simple)
+
+* max open positions
+* max trades per day
+* symbol cooldown
+* time window (market hours)
+* global kill switch
+
+### Design rules
+
+* pure decision logic
+* no broker imports
+* no side effects
+
+📌 **Acceptance Criteria**
+
+* Invalid orders are rejected early
+* Every rejection is logged with reason
+* Execution engine is the only caller
+
+---
+
+# 🟢 PHASE 3 — Position Tracker (Source of Truth)
+
+**Objective**
+Create a **single authoritative view of positions**.
+
+### What to build
+
+```
+core/execution/
+  └── position_tracker.py
+```
+
+### Responsibilities
+
+* track open quantity per symbol
+* average price
+* realized & unrealized P&L
+* position state (FLAT / LONG / SHORT)
+
+### Rules
+
+* updated only via execution results
+* never updated by strategies
+* reloadable from persistence
+
+📌 **Acceptance Criteria**
+
+* Execution engine queries position state
+* No other module mutates positions
+* Replay produces same position state
+
+---
+
+# 🟢 PHASE 4 — Broker Abstraction & Routing
+
+**Objective**
+Create a broker-agnostic execution interface.
+
+### What to build
+
+```
+core/brokers/
+  ├── broker_base.py
+  ├── paper_broker.py
+  └── upstox_adapter.py
+```
+
+### Responsibilities
+
+* place order
+* cancel order
+* query order status
+
+### Execution side
+
+```
+core/execution/
+  └── broker_router.py
+```
+
+Broker routing based on:
+
+* execution mode (PAPER / LIVE)
+* instrument type
+* availability
+
+📌 **Acceptance Criteria**
+
+* Execution engine never imports broker internals
+* Switching broker requires no strategy changes
+
+---
+
+# 🟢 PHASE 5 — Order Lifecycle & State Tracking
+
+**Objective**
+Track orders from creation → completion.
+
+### What to build
+
+```
+core/execution/
+  ├── order_tracker.py
+  └── execution_events.py
+```
+
+### Track states
+
+* CREATED
+* SENT
+* ACKNOWLEDGED
+* FILLED
+* PARTIAL
+* REJECTED
+* CANCELLED
+
+### Persistence
+
+* store order events
+* link to signal_id
+* link to position updates
+
+📌 **Acceptance Criteria**
+
+* Every order has a full lifecycle trail
+* Partial fills update positions correctly
+
+---
+
+# 🟢 PHASE 6 — Persistence & Audit Trail
+
+**Objective**
+Make execution **explainable and replayable**.
+
+### What to persist
+
+* signals received
+* normalized orders
+* broker responses
+* fills
+* position snapshots
+
+### Extend database
+
+```
+orders
+order_events
+trades
+positions
+```
+
+📌 **Acceptance Criteria**
+
+* Given a trade, you can answer:
+  “why did this happen?”
+* System can replay a day deterministically
+
+---
+
+# 🟢 PHASE 7 — Kill Switches & Safety Controls
+
+**Objective**
+Protect capital and operator sanity.
+
+### What to add
+
+* manual kill flag (file / DB)
+* max drawdown stop
+* max consecutive losses
+* emergency cancel-all
+
+📌 **Acceptance Criteria**
+
+* One flag can stop all trading
+* Kill switch overrides strategies
+
+---
+
+# 🟢 PHASE 8 — Paper Trading Validation
+
+**Objective**
+Prove execution correctness before live trading.
+
+### Run modes
+
+* backtest → execution replay
+* paper trading with live data
+
+### Validate
+
+* signal → order latency
+* position correctness
+* P&L accuracy
+* failure recovery
+
+📌 **Acceptance Criteria**
+
+* Paper results are stable
+* No manual intervention required
+
+---
+
+# 🟢 PHASE 9 — Equity & Futures Go-Live
+
+**Objective**
+Activate live trading with confidence.
+
+### Scope
+
+* equity intraday
+* futures intraday
+* limited symbols
+
+📌 **Acceptance Criteria**
+
+* All trades are auditable
+* Kill switch tested
+* Positions reconcile with broker
+
+---
+
+# 🔗 DEPENDENCY FLOW
+
+```
+Signals
+   ↓
+Phase 1 (Order Model)
+   ↓
+Phase 2 (Risk)
+   ↓
+Phase 3 (Positions)
+   ↓
+Phase 4 (Broker)
+   ↓
+Phase 5 (Order Lifecycle)
+   ↓
+Phase 6 (Audit)
+   ↓
+Phase 7 (Safety)
+   ↓
+Phase 8 (Paper)
+   ↓
+Phase 9 (Live)
+```
+
+---
+
+# 🎯 WHY THIS PLAN IS CORRECT
+
+* Options later become **Phase 10+**, not a refactor
+* Multi-leg logic plugs into Phase 5 cleanly
+* Broker quirks stay isolated
+* Determinism is preserved
+
+This is the **right foundation**.
+
+---
+

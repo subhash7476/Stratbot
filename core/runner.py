@@ -253,7 +253,8 @@ class TradingRunner:
                         self._trade_count += 1
                         if self.config.log_trades:
                             self._log_trade(trade)
-                        self.positions.apply_trade(trade)
+                        # Note: position tracking handled by ExecutionHandler in new system
+                        # self.positions.apply_trade(trade)  # Old API - no longer exists
 
                         # Track exit parameters for TP/SL/time-stop monitoring
                         new_pos = self.positions.get_position_quantity(symbol)
@@ -298,10 +299,26 @@ class TradingRunner:
         if self.telemetry:
             self.telemetry.publish_log("INFO", msg)
     
-    def _log_trade(self, trade: TradeEvent) -> None:
-        status = trade.status.value if hasattr(trade.status, 'value') else str(trade.status)
-        msg = (f"[TRADE]  {trade.symbol:10} | {trade.direction:5} | "
-               f"qty={trade.quantity:8.2f} | price={trade.price:8.2f} | "
+    def _log_trade(self, trade) -> None:
+        # Handle both TradeEvent (old) and NormalizedOrder (new)
+        from core.execution.order_models import NormalizedOrder
+
+        if isinstance(trade, NormalizedOrder):
+            symbol = trade.symbol
+            direction = trade.side.value if hasattr(trade.side, 'value') else str(trade.side)
+            quantity = trade.quantity
+            price = "MARKET"
+            status = "PENDING"
+        else:
+            symbol = trade.symbol
+            direction = trade.direction
+            quantity = trade.quantity
+            price = trade.price
+            status = trade.status.value if hasattr(trade.status, 'value') else str(trade.status)
+
+        price_str = f"{price:>8}" if isinstance(price, str) else f"{price:8.2f}"
+        msg = (f"[TRADE]  {symbol:10} | {direction:5} | "
+               f"qty={quantity:8.2f} | price={price_str} | "
                f"status={status} | time={self.clock.now()}")
         logger.info(msg)
         if self.telemetry:

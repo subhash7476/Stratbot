@@ -5,6 +5,7 @@ import pandas as pd
 
 from core.database.manager import DatabaseManager
 from core.database.queries import MarketDataQuery
+from core.backtest.scan_persistence import ScanPersistence
 
 @dataclass
 class WatchlistRow:
@@ -109,6 +110,29 @@ class ScannerFacade:
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
         self.query = MarketDataQuery(db_manager)
+        self._scan_persistence = None
+
+    @property
+    def scan_persistence(self) -> ScanPersistence:
+        if self._scan_persistence is None:
+            self._scan_persistence = ScanPersistence(self.db)
+        return self._scan_persistence
+
+    # ─── Backtest Scanner Methods ──────────────────────────────
+
+    def get_all_scans(self):
+        """Return all scan summaries."""
+        return self.scan_persistence.get_all_scans()
+
+    def get_scan_results(self, scan_id: str):
+        """Return full scan details with per-symbol results."""
+        return self.scan_persistence.get_scan_results(scan_id)
+
+    def get_profitable_symbols(self, scan_id=None):
+        """Return profitable symbols from latest (or specified) scan."""
+        return self.scan_persistence.get_profitable_symbols(scan_id)
+
+    # ─── Live Scanner & Watchlist Methods ──────────────────────
 
     def get_debug_stats(self) -> Dict[str, Any]:
         """Returns internal stats for debugging live data flow."""
