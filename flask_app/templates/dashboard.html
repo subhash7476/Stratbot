@@ -53,7 +53,7 @@
                 <div class="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-500">
                     <i class="fas fa-wallet"></i>
                 </div>
-                <span class="text-[10px] font-bold text-emerald-400 uppercase">+2.4%</span>
+                <span class="text-[10px] font-bold text-emerald-400 uppercase" id="portfolio-change">Live</span>
             </div>
             <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Portfolio Value</p>
             <p class="text-3xl font-bold text-emerald-400" id="portfolio-value">₹0.00</p>
@@ -64,7 +64,7 @@
                 <div class="w-10 h-10 bg-rose-500/10 rounded-lg flex items-center justify-center text-rose-500">
                     <i class="fas fa-chart-area"></i>
                 </div>
-                <span class="text-[10px] font-bold text-rose-400 uppercase">Max 5%</span>
+                <span class="text-[10px] font-bold text-rose-400 uppercase" id="drawdown-badge">Max 5%</span>
             </div>
             <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Current Drawdown</p>
             <p class="text-3xl font-bold text-rose-400" id="drawdown">0.00%</p>
@@ -124,14 +124,21 @@
             </div>
             
             <div class="glass rounded-2xl p-6 bg-gradient-to-br from-blue-600/10 to-indigo-600/10 border-blue-500/20">
-                <h3 class="font-bold text-white mb-2">Market Sentiment</h3>
-                <div class="flex items-center space-x-2 mb-4">
-                    <div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
-                        <div class="h-full bg-emerald-500" style="width: 65%"></div>
+                <h3 class="font-bold text-white mb-2">System Status</h3>
+                <div class="space-y-2" id="system-status-panel">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Data Feed</span>
+                        <span class="text-xs font-bold" id="data-feed-status">Waiting...</span>
                     </div>
-                    <span class="text-xs font-bold text-emerald-400">65% Bullish</span>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Kill Switch</span>
+                        <span class="text-xs font-bold text-emerald-400" id="kill-switch-status">OFF</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">Last Bar</span>
+                        <span class="text-xs font-bold text-slate-300" id="last-bar-ts">--</span>
+                    </div>
                 </div>
-                <p class="text-xs text-slate-400">Based on active scanner results across 150 tracked instruments.</p>
             </div>
         </div>
     </div>
@@ -140,11 +147,12 @@
 
 {% block scripts %}
 <script>
-    // Initialize Equity Chart
+    // Initialize Equity Chart (empty — populated by live telemetry)
+    const equityDataPoints = [];
     const options = {
         series: [{
             name: 'Portfolio',
-            data: [31, 40, 28, 51, 42, 109, 100]
+            data: []
         }],
         chart: {
             height: 350,
@@ -172,11 +180,16 @@
         },
         xaxis: {
             type: 'datetime',
-            categories: ["2026-02-01T00:00:00.000Z", "2026-02-01T01:30:00.000Z", "2026-02-01T02:30:00.000Z", "2026-02-01T03:30:00.000Z", "2026-02-01T04:30:00.000Z", "2026-02-01T05:30:00.000Z", "2026-02-01T06:30:00.000Z"],
             labels: { style: { colors: '#64748b' } }
         },
         yaxis: {
             labels: { style: { colors: '#64748b' } }
+        },
+        noData: {
+            text: 'No Live Data',
+            align: 'center',
+            verticalAlign: 'middle',
+            style: { color: '#64748b', fontSize: '16px' }
         },
         theme: { mode: 'dark' },
         tooltip: { theme: 'dark' }
@@ -241,10 +254,36 @@
             document.getElementById('trades-today').textContent = data.trades_today;
         }
         if (data.portfolio_value !== undefined) {
-            document.getElementById('portfolio-value').textContent = '₹' + parseFloat(data.portfolio_value || 0).toLocaleString();
+            const val = parseFloat(data.portfolio_value || 0);
+            document.getElementById('portfolio-value').textContent = '₹' + val.toLocaleString('en-IN', {maximumFractionDigits: 0});
+
+            // Append to equity curve (keep last 200 points)
+            equityDataPoints.push({ x: Date.now(), y: val });
+            if (equityDataPoints.length > 200) equityDataPoints.shift();
+            chart.updateSeries([{ name: 'Portfolio', data: equityDataPoints }]);
         }
         if (data.drawdown !== undefined) {
             document.getElementById('drawdown').textContent = (parseFloat(data.drawdown || 0) * 100).toFixed(2) + '%';
+        }
+        // System status panel
+        const feedEl = document.getElementById('data-feed-status');
+        if (feedEl) {
+            if (data.kill_switched) {
+                feedEl.textContent = 'STOPPED';
+                feedEl.className = 'text-xs font-bold text-rose-400';
+            } else {
+                feedEl.textContent = 'Healthy';
+                feedEl.className = 'text-xs font-bold text-emerald-400';
+            }
+        }
+        const ksEl = document.getElementById('kill-switch-status');
+        if (ksEl) {
+            ksEl.textContent = data.kill_switched ? 'ACTIVE' : 'OFF';
+            ksEl.className = data.kill_switched ? 'text-xs font-bold text-rose-400' : 'text-xs font-bold text-emerald-400';
+        }
+        const lbEl = document.getElementById('last-bar-ts');
+        if (lbEl && data.last_bar_ts) {
+            lbEl.textContent = new Date(data.last_bar_ts).toLocaleTimeString();
         }
     }
 

@@ -27,7 +27,7 @@ class LiveDuckDBMarketDataProvider(MarketDataProvider):
         symbols: List[str],
         db_manager: Optional[DatabaseManager] = None,
         poll_interval: float = 0.5,
-        lookback_bars: int = 5,
+        lookback_bars: int = 100,
         data_root: Optional[str] = None,
     ):
         """

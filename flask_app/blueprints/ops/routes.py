@@ -40,26 +40,67 @@ def index():
 
 @bp.route('/api/status')
 def api_status():
-    """JSON endpoint for real-time status updates."""
-    from app_facade.ops_facade import OpsFacade
-    from core.execution.handler import ExecutionHandler
-    from core.execution.health_monitor import HealthMonitor
-    from core.clock import RealTimeClock
-    from core.brokers.paper_broker import PaperBroker
-    from flask import current_app
-    
-    db_manager = getattr(current_app, 'db_manager', None)
-    clock = RealTimeClock()
-    broker = PaperBroker(clock)
-    execution = ExecutionHandler(db_manager=db_manager, clock=clock, broker=broker)
-    health = HealthMonitor()
-    facade = OpsFacade(execution, health, db_manager=db_manager)
-    
+    """JSON endpoint for real-time status updates.
+    Reads from persisted metrics and heartbeat files written by the live runner.
+    No longer creates a new ExecutionHandler per request.
+    """
+    from core.database.utils.market_hours import MarketHours
+
+    # Read execution metrics from file (written by ExecutionHandler._persist_metrics)
+    metrics = {}
+    if METRICS_PATH.exists():
+        try:
+            with open(METRICS_PATH, "r", encoding="utf-8") as f:
+                metrics = json.load(f)
+        except Exception:
+            pass
+
+    # Read heartbeat for health status
+    heartbeat = {}
+    heartbeat_path = Path("logs/heartbeat.json")
+    if heartbeat_path.exists():
+        try:
+            with open(heartbeat_path, "r", encoding="utf-8") as f:
+                heartbeat = json.load(f)
+        except Exception:
+            pass
+
+    # Determine market status
+    is_holiday = MarketHours.is_holiday()
+    if is_holiday:
+        market_status = "Holiday"
+    elif MarketHours.is_market_open():
+        market_status = "Open"
+    elif MarketHours.is_pre_market():
+        market_status = "Pre-Market"
+    elif MarketHours.is_post_market():
+        market_status = "Post-Market"
+    else:
+        market_status = "Closed"
+
+    # Build health from heartbeat
+    trading_db = Path("data/trading/trading.db")
+    config_db = Path("data/config/config.db")
+
     return jsonify({
         "success": True,
-        "metrics": facade.get_live_metrics(),
-        "health": facade.get_health_status(),
-        "matrix": facade.get_confluence_matrix(),
+        "metrics": {
+            "signals_received": metrics.get("signals_received", 0),
+            "trades_executed": metrics.get("trades_executed", 0),
+            "rejected_trades": metrics.get("rejected_trades", 0),
+            "drawdown": metrics.get("drawdown", 0.0),
+            "cash_balance": metrics.get("cash_balance", 0.0),
+            "total_equity": metrics.get("total_equity", 0.0),
+            "kill_switched": metrics.get("kill_switched", False),
+            "trades_today": metrics.get("trades_today", 0),
+            "market_status": market_status,
+        },
+        "health": {
+            "db_connected": trading_db.exists() and config_db.exists(),
+            "broker_connected": not metrics.get("kill_switched", False),
+            "data_healthy": heartbeat.get("data_healthy", False),
+            "market_status": market_status,
+        },
         "upstox_connected": credentials.has_upstox_token
     })
 
@@ -141,21 +182,30 @@ def upstox_callback():
 
 @bp.route('/api/websocket_status')
 def api_websocket_status():
-    """Read-only endpoint for current WebSocket status."""
-    from app_facade.ops_facade import OpsFacade
+    """Read-only endpoint for current WebSocket status from config DB."""
     from flask import current_app
-    from core.execution.handler import ExecutionHandler
-    from core.execution.health_monitor import HealthMonitor
-    from core.clock import RealTimeClock
-    from core.brokers.paper_broker import PaperBroker
-    
+    from core.database.utils.market_hours import MarketHours
+
     db_manager = getattr(current_app, 'db_manager', None)
-    clock = RealTimeClock()
-    broker = PaperBroker(clock)
-    execution = ExecutionHandler(db_manager=db_manager, clock=clock, broker=broker)
-    health = HealthMonitor()
-    facade = OpsFacade(execution, health, db_manager=db_manager)
-    return jsonify(facade.get_websocket_status())
+    if not db_manager:
+        return jsonify({"status": "UNKNOWN", "updated_at": None, "pid": None})
+
+    try:
+        with db_manager.config_reader() as conn:
+            row = conn.execute(
+                "SELECT status, updated_at, pid FROM websocket_status WHERE key = 'singleton'"
+            ).fetchone()
+            if row:
+                return jsonify({
+                    "status": row[0],
+                    "updated_at": row[1] if isinstance(row[1], str) else row[1].isoformat() if row[1] else None,
+                    "pid": row[2]
+                })
+    except Exception:
+        pass
+
+    fallback = "DISCONNECTED" if MarketHours.is_market_open() else "CLOSED"
+    return jsonify({"status": fallback, "updated_at": None, "pid": None})
 
 
 @bp.route('/api/kill', methods=['POST'])

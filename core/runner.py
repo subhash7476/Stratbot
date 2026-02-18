@@ -5,10 +5,13 @@ Orchestrates data flow between providers, strategies, and execution.
 Uses DatabaseManager for persistence and state tracking.
 """
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass, replace
 import traceback
 import time
+import json
+import tempfile
+import os
 
 from core.database.providers.base import MarketDataProvider, AnalyticsProvider
 from core.strategies.base import BaseStrategy, StrategyContext
@@ -17,8 +20,10 @@ from core.execution.position_tracker import PositionTracker
 from core.events import OHLCVBar, SignalEvent, SignalType, TradeEvent
 from core.clock import Clock
 from core.database.manager import DatabaseManager
+from core.database.utils.market_hours import MarketHours
 from core.database.legacy_adapter import save_signal
 from core.messaging.telemetry import TelemetryPublisher
+from core.alerts.alerter import alerter
 from core.logging import setup_logger
 
 logger = setup_logger("trading_runner")
@@ -40,7 +45,12 @@ class TradingRunner:
     """
     System orchestrator - coordinates data → strategies → execution.
     """
-    
+
+    # Data staleness threshold: 5 minutes without a new bar during market hours
+    DATA_STALE_THRESHOLD = timedelta(minutes=5)
+    # Heartbeat write interval (seconds)
+    HEARTBEAT_INTERVAL_S = 10.0
+
     def __init__(
         self,
         config: RunnerConfig,
@@ -62,7 +72,7 @@ class TradingRunner:
         self.positions = position_tracker
         self.clock = clock
         self.telemetry = telemetry
-        
+
         self._is_running = False
         self._bar_count = 0
         self._signal_count = 0
@@ -70,6 +80,18 @@ class TradingRunner:
         self._disabled_strategies: set = set()
         # Track open positions with their exit parameters (TP/SL/time-stop)
         self._open_exit_params: Dict[str, Dict] = {}  # symbol -> {sl, tp, bars_held, max_bars, strategy_id, direction}
+
+        # Data staleness detection
+        self._last_bar_timestamp: Optional[datetime] = None
+        self._data_stale_alerted = False
+        self._data_healthy = True
+
+        # Heartbeat tracking
+        self._last_heartbeat_time: float = 0.0
+
+        # Telemetry publish interval
+        self._last_telemetry_time: float = 0.0
+        self._telemetry_interval_s: float = 5.0
 
         self._validate_setup()
     
@@ -104,6 +126,15 @@ class TradingRunner:
                 if self.config.max_bars and self._bar_count >= self.config.max_bars:
                     logger.info(f"Reached max bars: {self.config.max_bars}")
                     break
+
+                # Data staleness check (only during market hours)
+                self._check_data_staleness()
+
+                # Periodic heartbeat write
+                self._write_heartbeat()
+
+                # Periodic telemetry publish
+                self._publish_telemetry()
 
                 any_bar_processed = False
                 for symbol in self.config.symbols:
@@ -188,7 +219,6 @@ class TradingRunner:
                 self._trade_count += 1
                 if self.config.log_trades:
                     self._log_trade(trade)
-                self.positions.apply_trade(trade)
                 logger.info(f"[EXIT] {symbol} {exit_reason} at {exit_price:.2f} after {params['bars_held']} bars")
 
                 # Notify strategy of exit for cooldown
@@ -202,6 +232,13 @@ class TradingRunner:
         bar = self.market_data.get_next_bar(symbol)
         if not bar:
             return False
+
+        # Track last bar timestamp for staleness detection
+        self._last_bar_timestamp = datetime.now()
+        if self._data_stale_alerted:
+            logger.info("DATA RECOVERED — Bars flowing again.")
+            self._data_stale_alerted = False
+            self._data_healthy = True
 
         if hasattr(self.clock, 'set_time'):
             self.clock.set_time(bar.timestamp)
@@ -291,6 +328,107 @@ class TradingRunner:
                     
         return True
     
+    def _check_data_staleness(self) -> None:
+        """Detect silent data feed failure during market hours."""
+        if self._last_bar_timestamp is None:
+            return  # No bar received yet — still in warmup
+        if self._data_stale_alerted:
+            return  # Already alerted, don't spam
+
+        now = datetime.now()
+        if not MarketHours.is_market_open():
+            return  # Only check during market hours
+
+        elapsed = now - self._last_bar_timestamp
+        if elapsed > self.DATA_STALE_THRESHOLD:
+            self._data_stale_alerted = True
+            self._data_healthy = False
+            mins = elapsed.total_seconds() / 60
+            msg = f"DATA STALE — No new bars for {mins:.1f} minutes. Activating soft kill switch."
+            logger.critical(msg)
+            alerter.critical(msg)
+            self.execution.activate_kill_switch(f"Data feed stale ({mins:.1f}m)")
+
+    def _write_heartbeat(self) -> None:
+        """Write heartbeat file atomically for external watchdog monitoring."""
+        now_mono = time.time()
+        if now_mono - self._last_heartbeat_time < self.HEARTBEAT_INTERVAL_S:
+            return
+        self._last_heartbeat_time = now_mono
+
+        try:
+            heartbeat = {
+                "timestamp": datetime.now().isoformat(),
+                "market_open": MarketHours.is_market_open(),
+                "data_healthy": self._data_healthy,
+                "equity": self.execution.metrics.cash_balance,
+                "bars_processed": self._bar_count,
+                "trades_today": self.execution._trades_today,
+                "kill_switched": self.execution._kill_switched,
+            }
+            heartbeat_path = os.path.join("logs", "heartbeat.json")
+            os.makedirs("logs", exist_ok=True)
+            # Atomic write: write to temp file then rename
+            fd, tmp_path = tempfile.mkstemp(dir="logs", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(heartbeat, f, indent=2)
+                # On Windows, os.replace is atomic within the same volume
+                os.replace(tmp_path, heartbeat_path)
+            except Exception:
+                # Clean up temp file if rename failed
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
+        except Exception as e:
+            logger.debug(f"Heartbeat write failed: {e}")
+
+    def _publish_telemetry(self) -> None:
+        """Publish live metrics, positions, and health via ZMQ telemetry."""
+        if not self.telemetry:
+            return
+        now_mono = time.time()
+        if now_mono - self._last_telemetry_time < self._telemetry_interval_s:
+            return
+        self._last_telemetry_time = now_mono
+
+        try:
+            # Metrics snapshot
+            metrics = self.execution.metrics
+            active_count = len(self.strategies) - len(self._disabled_strategies)
+            total_equity = metrics.cash_balance
+            self.telemetry.publish_metrics({
+                "active_strategies": active_count,
+                "trades_today": self.execution._trades_today,
+                "portfolio_value": total_equity,
+                "drawdown": metrics.max_drawdown_pct,
+                "signals_received": metrics.signals_received,
+                "kill_switched": self.execution._kill_switched,
+                "last_bar_ts": self._last_bar_timestamp.isoformat() if self._last_bar_timestamp else None,
+            })
+
+            # Positions snapshot
+            all_positions = self.positions.get_all_positions()
+            pos_data = {}
+            for symbol, pos in all_positions.items():
+                if hasattr(pos, 'quantity') and pos.quantity != 0:
+                    pos_data[symbol] = {
+                        "quantity": pos.quantity,
+                        "avg_entry_price": getattr(pos, 'avg_entry_price', 0.0),
+                        "pnl_pct": 0.0,
+                    }
+            self.telemetry.publish_positions(pos_data)
+
+            # Health snapshot
+            self.telemetry.publish_health({
+                "status": "healthy" if self._data_healthy and not self.execution._kill_switched else "degraded",
+                "data_healthy": self._data_healthy,
+                "bars_processed": self._bar_count,
+                "market_open": MarketHours.is_market_open(),
+            })
+        except Exception as e:
+            logger.debug(f"Telemetry publish failed: {e}")
+
     def _log_signal(self, signal: SignalEvent, price: float) -> None:
         msg = (f"[SIGNAL] {signal.strategy_id:20} | {signal.symbol:10} | "
                f"{signal.signal_type.value:6} | conf={signal.confidence:.2f} | "

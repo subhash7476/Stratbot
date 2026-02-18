@@ -39,21 +39,25 @@ def compute_session_vwap(df: pd.DataFrame) -> pd.Series:
         return hlc3.groupby(session_date).expanding().mean().droplevel(0)
 
 def find_swing_highs(highs: pd.Series, period: int = 5) -> pd.Series:
-    """Detect swing highs and forward-fill the last known value."""
+    """Detect swing highs and forward-fill the last known value.
+    Swing at bar i is only confirmed after period bars elapse (causal).
+    """
     result = pd.Series(np.nan, index=highs.index)
     for i in range(period, len(highs) - period):
         window = highs.iloc[i - period: i + period + 1]
         if highs.iloc[i] == window.max():
-            result.iloc[i] = highs.iloc[i]
+            result.iloc[i + period] = highs.iloc[i]
     return result.ffill()
 
 def find_swing_lows(lows: pd.Series, period: int = 5) -> pd.Series:
-    """Detect swing lows and forward-fill the last known value."""
+    """Detect swing lows and forward-fill the last known value.
+    Swing at bar i is only confirmed after period bars elapse (causal).
+    """
     result = pd.Series(np.nan, index=lows.index)
     for i in range(period, len(lows) - period):
         window = lows.iloc[i - period: i + period + 1]
         if lows.iloc[i] == window.min():
-            result.iloc[i] = lows.iloc[i]
+            result.iloc[i + period] = lows.iloc[i]
     return result.ffill()
 
 def batch_generate_events(
@@ -62,6 +66,7 @@ def batch_generate_events(
     reversion_k: float = 2.0,
     time_stop_bars: int = 12,
     bar_minutes: int = 1,
+    skip_reversion: bool = False,
 ) -> list:
     """
     Vectorized event generation — same logic as PixityAIEventGenerator.process_bar
@@ -165,12 +170,13 @@ def batch_generate_events(
     for idx, row in df[trend_short].iterrows():
         ts = row['timestamp'] if 'timestamp' in row else idx
         events.append(make_event(ts, row, SignalType.SELL, "TREND"))
-    for idx, row in df[rev_long].iterrows():
-        ts = row['timestamp'] if 'timestamp' in row else idx
-        events.append(make_event(ts, row, SignalType.BUY, "REVERSION"))
-    for idx, row in df[rev_short].iterrows():
-        ts = row['timestamp'] if 'timestamp' in row else idx
-        events.append(make_event(ts, row, SignalType.SELL, "REVERSION"))
+    if not skip_reversion:
+        for idx, row in df[rev_long].iterrows():
+            ts = row['timestamp'] if 'timestamp' in row else idx
+            events.append(make_event(ts, row, SignalType.BUY, "REVERSION"))
+        for idx, row in df[rev_short].iterrows():
+            ts = row['timestamp'] if 'timestamp' in row else idx
+            events.append(make_event(ts, row, SignalType.SELL, "REVERSION"))
 
     # Sort by timestamp
     events.sort(key=lambda e: e.timestamp)

@@ -29,6 +29,7 @@ from core.execution.order_lifecycle import OrderStatus, FillEvent
 from core.execution.order_tracker import OrderTracker
 from core.execution.risk_manager import RiskManager
 from core.execution.position_tracker import PositionTracker
+from core.execution.position_models import PositionSide
 from core.execution.pnl_tracker import PnLTracker
 from core.execution.margin_tracker import MarginTracker
 from core.execution.groups.group_tracker import GroupTracker
@@ -206,10 +207,12 @@ class ExecutionHandler:
         """Replays orders and fills from persistence to restore state."""
         self.logger.info("Replaying execution state from persistence...")
 
-        # 1. Load Orders
+        # 1. Load Orders & Restore Idempotency Registry
         orders = self.order_repo.get_all()
         for order in orders:
             self.order_tracker.add_order(order, persist=False)
+            if order.signal_id:
+                self._seen_signals.add(str(order.signal_id))
 
         # 2. Load Fills
         fills = self.fill_repo.get_all()
@@ -239,8 +242,14 @@ class ExecutionHandler:
                 self.group_tracker.update_from_order_status(
                     legs[0].correlation_id)
 
+        # 4. Restore daily trade count (fills from today only)
+        today = self.clock.now().date()
+        today_fills = [f for f in fills if hasattr(f, 'timestamp') and f.timestamp.date() == today]
+        self._trades_today = len(today_fills)
+
         self.logger.info(
-            f"Replay complete. Loaded {len(orders)} orders and {len(fills)} fills.")
+            f"Replay complete. Loaded {len(orders)} orders, {len(fills)} fills, "
+            f"{len(self._seen_signals)} seen signals, {self._trades_today} trades today.")
 
     def _handle_broker_fill(self, fill: FillEvent):
         """
@@ -307,6 +316,11 @@ class ExecutionHandler:
                 if dd >= self.config.max_drawdown_limit:
                     self.activate_kill_switch(
                         f"Max drawdown ({dd*100:.1f}%) reached.")
+                    return None
+
+            # 4b. Position Stacking Guard — max 1 position per symbol
+            if signal.signal_type != SignalType.EXIT:
+                if self.position_tracker.has_open_position(signal.symbol):
                     return None
 
             # 5. Risk Checks (PHASE 0: Risk Clearance Enforcement)
@@ -377,9 +391,11 @@ class ExecutionHandler:
                 from core.brokers.paper_broker import PaperBroker
                 if isinstance(self.broker, PaperBroker):
                     from core.events import TradeEvent, TradeStatus
+                    from core.execution.order_lifecycle import FillEvent
                     import uuid as uuid_module
+                    fill_id = str(uuid_module.uuid4())
                     trade = TradeEvent(
-                        trade_id=str(uuid_module.uuid4()),
+                        trade_id=fill_id,
                         signal_id_reference=order.signal_id,
                         symbol=order.symbol,
                         direction=order.side.value,
@@ -387,9 +403,25 @@ class ExecutionHandler:
                         price=current_price,  # Use current market price for fill
                         timestamp=order.timestamp,
                         status=TradeStatus.FILLED,
-                        fees=0.0  # Fees calculated elsewhere
+                        fees=self._calculate_fees(order.quantity, current_price)
                     )
+                    # Update position tracker so equity includes position values
+                    fill_event = FillEvent(
+                        fill_id=fill_id,
+                        order_id=order.correlation_id,
+                        symbol=order.symbol,
+                        quantity=order.quantity,
+                        price=current_price,
+                        timestamp=order.timestamp,
+                        side=order.side.value,
+                        fee=trade.fees,
+                    )
+                    self.position_tracker.update_from_fill(fill_event, persist=False)
                     self._trade_history.append(trade)
+                    self._trades_today += 1
+                    self._update_equity_metrics(trade)
+                    self._persist_metrics(current_price, order.symbol)
+                    return trade
 
             except Exception as e:
                 self.logger.error(f"Failed to place order with broker: {e}")
@@ -592,7 +624,7 @@ class ExecutionHandler:
 
         total_equity = self.metrics.cash_balance + \
             (self.position_tracker.net_quantity(trade.symbol) * trade.price)
-        self.metrics.max_equity = max(self.metrics.max_equity, total_equity)
+        self.metrics.update_drawdown(total_equity)
 
     def get_position(self, symbol: str) -> float:
         return self.position_tracker.net_quantity(symbol)

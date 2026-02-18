@@ -1,0 +1,51 @@
+{
+  "description": "HMM Regime Strategy Configuration",
+  "version": "1.0",
+
+  "observer": {
+    "vix_pctl_window": 90,
+    "vix_roc_period": 5,
+    "nifty_ema_period": 20,
+    "nifty_slope_delta": 5,
+    "realized_vol_window": 10
+  },
+
+  "classifier": {
+    "n_states": 3,
+    "covariance_type": "full",
+    "n_iter": 200,
+    "random_state": 42,
+    "override_vix_pctl_threshold": 0.85,
+    "override_vix_roc_threshold": 0.20
+  },
+
+  "executor": {
+    "expansion_threshold": 0.70,
+    "shock_threshold": 0.65,
+    "contraction_threshold": 0.65,
+    "persistence_days": 1,
+    "ema_fast": 9,
+    "ema_slow": 21,
+    "atr_period": 14,
+    "vol_z_threshold": 1.0,
+    "time_stop_bars": 20,
+    "bar_minutes": 15,
+    "initial_capital": 100000
+  },
+
+  "sizing": {
+    "risk_pct_per_trade": 0.0075,
+    "atr_sl_multiplier": 1.5,
+    "atr_tp_multiplier": 2.0,
+    "max_notional_multiplier": 2.0,
+    "entropy_reduction_threshold": 0.5
+  },
+
+  "backtest": {
+    "initial_capital": 100000,
+    "train_months": 9,
+    "test_months": 3,
+    "walk_forward_step_months": 3,
+    "symbol": "NSE_INDEX|Nifty 50"
+  }
+}

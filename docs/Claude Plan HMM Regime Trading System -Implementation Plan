@@ -1,0 +1,199 @@
+HMM Regime Trading System — Implementation Plan
+Context
+The PixityAI per-symbol swing/reversion strategy was invalidated by Phase 6 scan: only 4/196 symbols passed walk-forward validation, with tiny returns (0.3-2.6% over 7 months). The old "86 profitable" result was an artifact of 3 compounding bugs (position stacking, no tracking, look-ahead bias).
+
+This plan implements a fundamentally different approach: a macro regime-based system that classifies the market state daily using an HMM on intermarket features, then trades Nifty 50 index directionally and filters equity entries by regime. The edge is avoiding bad trades in chop markets, not predicting winning ones.
+
+Architecture
+
+Layer 1: OBSERVER  (daily features from VIX, BankNifty, USDINR, Nifty)
+                |
+Layer 2: CLASSIFIER  (HMM -> state probabilities: Expansion/Contraction/Shock)
+                |
+Layer 3: EXECUTOR  (intraday 15m strategy: regime gate + technical confirmation)
+                |
+        Existing Infrastructure  (TradingRunner -> ExecutionHandler -> PaperBroker)
+Key decisions:
+
+Daily HMM classification at market open, intraday 15m execution
+Nifty 50 cash index as proxy + regime-filtered equities
+Fresh module alongside existing code, reusing runner/handler/backtest infra
+No Brent crude for now; Bank Nifty, India VIX, USDINR via Upstox
+File Structure
+
+core/strategies/regime/
+  __init__.py
+  observer.py           # Layer 1: daily feature engineering
+  classifier.py         # Layer 2: HMM regime detection
+  executor.py           # Layer 3: strategy (extends BaseStrategy)
+  sizing.py             # Volatility parity position sizing
+  circuit_breaker.py    # Weekly drawdown halt
+  regime_config.json    # All tunable parameters
+
+scripts/
+  fetch_intermarket_data.py   # Data acquisition
+  run_regime_backtest.py      # Walk-forward backtest entry point
+
+core/backtest/runner.py       # MODIFY: add _run_regime_batch() dispatch
+Phase 0: Data Acquisition
+File: scripts/fetch_intermarket_data.py
+
+Fetch historical daily + 1m data for intermarket instruments via Upstox V3 API:
+
+Instrument	Expected Key	Data Needed
+Nifty 50	NSE_INDEX|Nifty 50	Daily + 1m (may already exist)
+Bank Nifty	NSE_INDEX|Nifty Bank	Daily (for ratio feature)
+India VIX	NSE_INDEX|India VIX	Daily (for VIX features)
+USDINR	TBD (investigate CDS segment)	Daily (for currency slope)
+Reuse scripts/fetch_upstox_historical.py pattern (chunking, rate limiting, DuckDB insert)
+Store in existing format: data/market_data/nse/candles/1m/{date}.duckdb
+Include instrument key discovery step via Upstox instrument master
+Fallback: If USDINR unavailable, degrade to 7 features (observer handles gracefully)
+Phase 1: Observer Module
+File: core/strategies/regime/observer.py
+
+Computes 8 daily features from intermarket OHLCV data:
+
+#	Feature	Formula
+1	vix_level	VIX close
+2	vix_pctl_90d	90-day rolling percentile of VIX
+3	vix_roc_5d	5-day rate of change of VIX
+4	usdinr_slope_10d	10-day linreg slope of USDINR
+5	banknifty_nifty_ratio	Bank Nifty / Nifty close ratio
+6	nifty_20dma_slope	5-day delta of Nifty 20-day EMA
+7	realized_vol_10d	10-day rolling stdev of Nifty log returns
+8	gap_pct	(today open - yesterday close) / yesterday close (execution filter, NOT HMM input)
+Interface:
+
+
+class RegimeObserver:
+    def compute_features(self, nifty_daily, banknifty_daily, vix_daily, usdinr_daily=None) -> pd.DataFrame:
+        """Returns aligned daily feature DataFrame indexed by date."""
+Reuses: core/analytics/indicators/ema.py, linreg pattern
+
+Phase 2: Classifier Module (HMM)
+File: core/strategies/regime/classifier.py
+New dependency: hmmlearn
+
+
+class HMMRegimeClassifier:
+    def fit(self, features: pd.DataFrame) -> None
+    def predict_proba(self, features: pd.DataFrame) -> pd.DataFrame  # P(state) per day
+    def classify(self, features_row, date) -> RegimeClassification
+    def save(path) / load(path)  # joblib serialization
+Training: StandardScaler -> GaussianHMM(n_states=3, covariance_type='full', n_iter=200)
+
+Training window: Test 6, 9, and 12-month windows. 6 months (~120 obs) is tight for 3-state full covariance — prefer 9-12 months if data permits. Compare state stability across window sizes.
+
+State mapping (rank-based scoring, NOT position-based):
+
+
+# Rank states by composite score instead of assuming VIX ordering
+shock_score = rank(vix_mean) + rank(realized_vol_mean)
+expansion_score = -rank(vix_mean) + rank(nifty_slope_mean)
+# Assign labels by highest composite score per state
+This avoids fragile assumptions about which state has "lowest" VIX.
+
+Override rules (bypass HMM in extreme conditions):
+
+VIX 90d percentile > 85% AND USDINR slope > 0 -> force SHOCK
+VIX 5-day RoC > 20% -> force SHOCK
+Regime stability metric: Track state entropy H = -sum(p * log(p)). High entropy = unclear regime -> reduce position size proportionally.
+
+Output: State probabilities (not discrete) — P(Expansion), P(Contraction), P(Shock)
+
+Phase 3: Executor Module
+3a. Strategy (core/strategies/regime/executor.py)
+Extends BaseStrategy.process_bar(). Daily regime cached, intraday signals on 15m bars.
+
+Trading logic:
+
+P(Expansion) > 0.70 for 2 consecutive days + technical confirmation -> LONG entry
+P(Shock) > 0.65 or P(Contraction) > 0.65 -> EXIT longs
+High entropy (unclear regime) -> reduce position size by 50%
+Otherwise -> NO TRADE (preserve capital)
+Regime persistence filter: Require threshold exceeded for 2 consecutive days before acting. Prevents one-day false spikes and flip-flopping.
+
+Intraday entry confirmation (15m):
+
+EMA(9) > EMA(21) crossover
+Volume z-score > 1.0
+Price above session VWAP
+ATR-based SL (1.5x ATR) and TP (2.0x ATR)
+Batch mode: For backtesting, batch_generate_regime_signals() generates all signals vectorized upfront -> feeds through PrecomputedSignalStrategy (same pattern as PixityAI batch).
+
+3b. Sizing (core/strategies/regime/sizing.py)
+Volatility parity: Position Size = (0.75% of capital) / (2 * ATR)
+Weekly risk cap = 3%
+
+3c. Circuit Breaker (core/strategies/regime/circuit_breaker.py)
+Weekly drawdown > 3% -> halt all trading until next Monday.
+
+Phase 4: Backtest Integration
+Modify: core/backtest/runner.py — add _run_regime_batch() dispatch
+
+Flow: load daily data for 4 instruments -> compute features -> train/load HMM -> classify days -> load 15m Nifty data -> generate signals -> feed through PrecomputedSignalStrategy + TradingRunner
+
+Create: scripts/run_regime_backtest.py — walk-forward backtest
+
+
+Walk-forward windows (6-month train, 3-month test):
+  Train 1: Oct 2024 - Mar 2025 -> Test: Apr 2025 - Jun 2025
+  Train 2: Jan 2025 - Jun 2025 -> Test: Jul 2025 - Sep 2025
+  Train 3: Apr 2025 - Sep 2025 -> Test: Oct 2025 - Dec 2025
+  Train 4: Jul 2025 - Dec 2025 -> Test: Jan 2026 - Feb 2026
+Metrics: Sharpe, Sortino, MaxDD, WinRate, ProfitFactor, regime accuracy, trades per regime
+
+Phase 5: Validation
+MANDATORY: HMM vs simple VIX threshold — does HMM add value over VIX < 15 = expansion, VIX > 22 = shock? If not, use the simpler model.
+State count optimization: Compare 2/3/4 states via out-of-sample Sharpe
+Training window comparison: 6 vs 9 vs 12 months — check state mean stability
+Threshold sensitivity: Test P(Expansion) at 0.60, 0.65, 0.70, 0.75, 0.80
+Baseline comparisons: HMM vs rule-based RegimeDetector vs GMM vs buy-and-hold
+Regime accuracy check: Do expansion days actually contain majority of positive Nifty returns? Do shock days contain crash clusters? If distribution is random, HMM has no edge.
+Trade frequency monitor: If expansion regime produces <2 trades/week, intraday filter is too tight — relax confirmation
+Regime visualization: Nifty chart with color-coded regime overlay + state probability time series
+Configuration
+core/strategies/regime/regime_config.json:
+
+Observer: window sizes for VIX percentile (90d), slope (10d), vol (10d)
+Classifier: n_states (3), override thresholds
+Executor: probability thresholds (0.70/0.65), EMA periods (9/21), timeframe (15m)
+Sizing: risk per trade (0.75%), ATR multipliers (1.5x SL, 2.0x TP), weekly cap (3%)
+Backtest: train/test months, walk-forward step
+Reused Existing Infrastructure
+Existing Code	What We Reuse
+core/strategies/base.py	BaseStrategy, StrategyContext interface
+core/events.py	SignalEvent, TradeEvent, OHLCVBar
+core/runner.py	TradingRunner with TP/SL/time-stop monitoring
+core/execution/handler.py	ExecutionHandler, fee model, position tracking
+core/strategies/precomputed_signals.py	PrecomputedSignalStrategy for batch backtests
+core/analytics/resampler.py	resample_ohlcv() for 1m -> 15m
+core/analytics/indicators/	EMA, ATR, VWAP for intraday confirmation
+scripts/fetch_upstox_historical.py	Data fetch pattern (chunking, rate limiting)
+core/filters/gmm_regime_filter.py	Baseline comparison (3-state GMM)
+core/analytics/regime_engine.py	Baseline comparison (rule-based regime)
+Expected Performance
+If regime has genuine predictive power:
+Win Rate: 52-58%, Sharpe: 1.0-1.6, Max DD: 9-14%, Profit Factor: 1.2-1.5
+
+If regime has NO predictive power:
+Walk-forward Sharpe < 0.5, regime accuracy < 55%
+Action: abandon HMM, consider simpler VIX-only threshold system
+
+Risks
+Risk	Mitigation
+USDINR key unavailable in Upstox	Observer degrades to 7 features
+India VIX short history	Reduce warmup to 60 days
+HMM overfits training window	Walk-forward validation catches this
+Regime-dependency (Kalman lesson)	Circuit breaker + walk-forward across ALL periods
+hmmlearn numerical instability	n_iter=200, tol=1e-4, fallback to 'diag' covariance
+HMM is just a fancy VIX filter	MANDATORY baseline: compare vs simple VIX percentile thresholds
+Training window too short (120 obs)	Test 9 and 12-month windows; compare state stability
+State mapping flips between retrains	Rank-based scoring instead of position-based assumption
+Verification
+Data: After fetch, verify daily candle counts (expect 250+/year per instrument)
+Observer: Unit test feature computation — check NaN handling, alignment
+Classifier: Plot state probs vs Nifty returns to verify state interpretability
+Backtest: Walk-forward on Nifty alone first, then add equities
+End-to-end: Final walk-forward should show Sharpe > 0.8 across all windows to proceed

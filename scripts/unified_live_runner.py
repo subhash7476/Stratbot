@@ -34,6 +34,8 @@ from core.brokers.upstox_adapter import UpstoxAdapter
 from core.strategies.registry import create_strategy
 from core.alerts.alerter import alerter
 from core.auth.credentials import credentials
+from core.messaging.telemetry import TelemetryPublisher
+from config.settings import load_zmq_config
 from ops.session_log import SessionLogger
 from scripts.market_ingestor import MarketIngestorDaemon
 from flask_app import create_app
@@ -55,6 +57,7 @@ def main():
     parser.add_argument("--symbols", nargs="+", required=True, help="Symbols to trade")
     parser.add_argument("--strategies", nargs="+", required=True, help="Strategy IDs to run")
     parser.add_argument("--max-capital", type=float, default=100000.0, help="Max capital limit")
+    parser.add_argument("--max-position-size", type=float, default=1000.0, help="Max position size in units per symbol")
     parser.add_argument("--max-daily-loss", type=float, default=5000.0, help="Max daily loss limit")
     parser.add_argument("--max-bars", type=int, default=None, help="Max bars to process")
     parser.add_argument("--zmq", action="store_true", help="Use ZMQ fast-path for market data")
@@ -62,11 +65,13 @@ def main():
     
     args = parser.parse_args()
 
-    # 0. Market Hours Gate
+    # 0. Market Hours Gate (holiday-aware)
     now = MarketHours.get_ist_now()
+    if MarketHours.is_holiday(now):
+        logger.info(f"Market closed — NSE Holiday ({now.strftime('%Y-%m-%d')}). Exiting.")
+        sys.exit(0)
     if not MarketHours.is_market_open(now):
-        logger.info("Market is closed. Exiting.")
-        # sys.exit(0) 
+        logger.info("Market is closed. Continuing in standby mode.")
 
     # 1. Initialize Time
     clock = RealTimeClock()
@@ -111,10 +116,10 @@ def main():
     # 6. Initialize Execution Handler
     exec_config = ExecutionConfig(
         mode=exec_mode,
-        max_position_size=args.max_capital,
+        max_position_size=args.max_position_size,
         max_drawdown_limit=args.max_daily_loss / args.max_capital if args.max_capital > 0 else 0.05
     )
-    execution = ExecutionHandler(db_manager, clock, broker, exec_config)
+    execution = ExecutionHandler(db_manager, clock, broker, exec_config, initial_capital=args.max_capital)
     position_tracker = PositionTracker()
 
     # 7. Initialize Session Logger
@@ -168,14 +173,23 @@ def main():
             logger.error(f"Failed to create strategy: {s_id}")
             sys.exit(1)
 
-    # 10. Initialize Runner
+    # 10. Initialize Telemetry Publisher
+    zmq_config = load_zmq_config()
+    telemetry = TelemetryPublisher(
+        host=zmq_config["host"],
+        port=zmq_config["ports"]["telemetry_pub"],
+        node_name="trading_runner",
+        bind=False  # CONNECT to the bridge's BIND socket
+    )
+
+    # 11. Initialize Runner
     runner_config = RunnerConfig(
         symbols=args.symbols,
         strategy_ids=args.strategies,
         max_bars=args.max_bars,
         warn_on_missing_analytics=True
     )
-    
+
     runner = TradingRunner(
         config=runner_config,
         db_manager=db_manager,
@@ -184,10 +198,11 @@ def main():
         strategies=strategies,
         execution_handler=execution,
         position_tracker=position_tracker,
-        clock=clock
+        clock=clock,
+        telemetry=telemetry
     )
 
-    # 11. Start Trading Runner
+    # 12. Start Trading Runner
     logger.info(f"Starting trading runner for {args.symbols}")
     if args.no_dashboard:
         # Run in main thread to see output and exit when done
@@ -202,7 +217,7 @@ def main():
         )
         trading_thread.start()
 
-        # 12. Start Flask App (Main Thread)
+        # 13. Start Flask App (Main Thread)
         logger.info("Starting Dashboard...")
         app = create_app()
         app.db_manager = db_manager

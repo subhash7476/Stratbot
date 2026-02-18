@@ -21,7 +21,7 @@ class PixityAIRiskEngine(RiskManager):
         if entry_price <= 0 or atr <= 0:
             return {"quantity": 0, "sl": 0, "tp": 0}
 
-        sl_distance = atr
+        sl_distance = 2.0 * atr
         quantity = int(self.risk_per_trade /
                        sl_distance) if sl_distance > 0 else 0
 
@@ -29,7 +29,7 @@ class PixityAIRiskEngine(RiskManager):
         if (quantity * entry_price) > max_notional:
             quantity = int(max_notional / entry_price)
 
-        tp_distance = 2.0 * atr
+        tp_distance = 4.0 * atr
 
         if signal.signal_type == SignalType.BUY:
             sl = entry_price - sl_distance

@@ -111,6 +111,7 @@ class PixityAIMetaStrategy(BaseStrategy):
             "quantity": pos_info["quantity"],
             "sl": pos_info["sl"],
             "tp": pos_info["tp"],
+            "confidence": confidence,
         }
 
         return replace(

@@ -11,8 +11,11 @@ import sys
 import os
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+
+import pandas as pd
+import numpy as np
 
 # Ensure project root is on path
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -20,6 +23,9 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.database.manager import DatabaseManager
+from core.database.queries import MarketDataQuery
+from core.analytics.resampler import resample_ohlcv
+from core.analytics.indicators.atr import ATR
 from core.backtest.symbol_scanner import SymbolScanner
 from core.backtest.scan_persistence import ScanPersistence
 
@@ -40,6 +46,8 @@ def main():
     parser.add_argument("--train-end", default="2025-05-31", help="Train period end")
     parser.add_argument("--test-start", default="2025-06-01", help="Test period start")
     parser.add_argument("--test-end", default="2025-12-31", help="Test period end")
+    parser.add_argument("--skip-reversion", action="store_true", help="Disable REVERSION signals (TREND-only)")
+    parser.add_argument("--min-atr-pct", type=float, default=0.0, help="Min ATR%% to include symbol (e.g. 0.43)")
     parser.add_argument("--quiet", action="store_true", help="Suppress per-symbol progress output")
     parser.add_argument("--no-save", action="store_true", help="Don't persist results to DB")
     args = parser.parse_args()
@@ -68,14 +76,54 @@ def main():
     if args.limit > 0:
         symbols = symbols[:args.limit]
 
+    # ATR% volatility pre-filter
+    if args.min_atr_pct > 0:
+        print(f"\n  Filtering symbols by ATR% >= {args.min_atr_pct}%...")
+        query = MarketDataQuery(db)
+        filtered = []
+        filter_end = datetime.strptime(args.test_end, "%Y-%m-%d")
+        filter_start = filter_end - timedelta(days=120)  # Last ~4 months for ATR calc
+        total = len(symbols)
+        for i, sym_info in enumerate(symbols):
+            if (i + 1) % 20 == 0 or i == 0:
+                print(f"    [{i+1}/{total}] scanning ATR%...", flush=True)
+            try:
+                df_1m = query.get_ohlcv(sym_info["instrument_key"], start_time=filter_start, end_time=filter_end, timeframe="1m")
+                if df_1m.empty:
+                    continue
+                df_1m["timestamp"] = pd.to_datetime(df_1m["timestamp"])
+                df_1m.set_index("timestamp", inplace=True)
+                df_15m = resample_ohlcv(df_1m, "15m")
+                atr_vals = ATR(14).calculate(df_15m)
+                atr_pct = (atr_vals / df_15m["close"]).dropna()
+                mean_atr_pct = atr_pct.mean() * 100  # as percentage
+                if mean_atr_pct >= args.min_atr_pct:
+                    filtered.append(sym_info)
+            except Exception:
+                pass
+        print(f"  Filtered to {len(filtered)}/{len(symbols)} symbols (ATR% >= {args.min_atr_pct}%)")
+        symbols = filtered
+
     train_start = datetime.strptime(args.train_start, "%Y-%m-%d")
     train_end = datetime.strptime(args.train_end, "%Y-%m-%d")
     test_start = datetime.strptime(args.test_start, "%Y-%m-%d")
     test_end = datetime.strptime(args.test_end, "%Y-%m-%d")
 
+    # Build strategy params
+    strategy_params = {
+        "skip_meta_model": True,
+        "use_signal_quality_filter": False,
+    }
+    if args.skip_reversion:
+        strategy_params["skip_reversion"] = True
+
+    mode_label = "TREND-only" if args.skip_reversion else "TREND+REVERSION"
+    atr_label = f" | ATR% >= {args.min_atr_pct}%" if args.min_atr_pct > 0 else ""
+
     print(f"\n{'='*70}")
     print(f"  PixityAI Symbol Scanner")
     print(f"  Symbols: {len(symbols)} | Timeframe: {args.timeframe} | Capital: Rs {args.capital:,.0f}")
+    print(f"  Mode: {mode_label}{atr_label}")
     print(f"  Train: {args.train_start} -> {args.train_end}")
     print(f"  Test:  {args.test_start} -> {args.test_end}")
     print(f"{'='*70}\n")
@@ -89,6 +137,7 @@ def main():
         test_end=test_end,
         initial_capital=args.capital,
         timeframe=args.timeframe,
+        strategy_params=strategy_params,
         progress_callback=callback,
     )
 

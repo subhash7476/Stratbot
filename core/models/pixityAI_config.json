@@ -13,6 +13,7 @@
     "risk_per_trade": 500.0,
     "max_daily_trades": 10,
     "skip_meta_model": true,
+    "skip_reversion": true,
     "preferred_timeframe": "15m",
     "symbols": [
         "NSE_EQ|INE155A01022",

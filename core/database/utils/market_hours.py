@@ -9,9 +9,12 @@ Indian market hours (IST):
 - Post-market: 3:30 PM - 4:00 PM
 """
 
-from datetime import datetime, time, timedelta
-from typing import Tuple, Optional
+from datetime import datetime, time, date, timedelta
+from typing import Tuple, Optional, Set
 import pytz
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class MarketHours:
@@ -46,6 +49,37 @@ class MarketHours:
     # Trading days (Monday = 0, Sunday = 6)
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
 
+    # NSE Trading Holidays 2026 (official NSE calendar)
+    # Source: https://www.nseindia.com/resources/exchange-communication-holidays
+    # Update this set at the start of each calendar year.
+    NSE_HOLIDAYS: Set[date] = {
+        date(2026, 1, 15),   # Municipal Corporation Election - Maharashtra
+        date(2026, 1, 26),   # Republic Day
+        date(2026, 3, 3),    # Holi
+        date(2026, 3, 26),   # Shri Ram Navami
+        date(2026, 3, 31),   # Shri Mahavir Jayanti
+        date(2026, 4, 3),    # Good Friday
+        date(2026, 4, 14),   # Dr. Baba Saheb Ambedkar Jayanti
+        date(2026, 5, 1),    # Maharashtra Day
+        date(2026, 5, 28),   # Bakri Id
+        date(2026, 6, 26),   # Muharram
+        date(2026, 9, 14),   # Ganesh Chaturthi
+        date(2026, 10, 2),   # Mahatma Gandhi Jayanti
+        date(2026, 10, 20),  # Dussehra
+        date(2026, 11, 10),  # Diwali-Balipratipada
+        date(2026, 11, 24),  # Prakash Gurpurb Sri Guru Nanak Dev
+        date(2026, 12, 25),  # Christmas
+    }
+
+    @classmethod
+    def is_holiday(cls, dt: Optional[datetime] = None) -> bool:
+        """Check if a date is an NSE trading holiday."""
+        if dt is None:
+            dt = cls.get_ist_now()
+        else:
+            dt = cls.to_ist(dt)
+        return dt.date() in cls.NSE_HOLIDAYS
+
     @classmethod
     def get_ist_now(cls) -> datetime:
         """
@@ -75,20 +109,24 @@ class MarketHours:
     @classmethod
     def is_trading_day(cls, dt: Optional[datetime] = None) -> bool:
         """
-        Check if a date is a trading day (weekday).
+        Check if a date is a trading day (weekday, not a holiday).
 
         Args:
             dt: Datetime to check. Defaults to current IST time.
 
         Returns:
-            True if it's a trading day (Mon-Fri).
+            True if it's a trading day (Mon-Fri and not an NSE holiday).
         """
         if dt is None:
             dt = cls.get_ist_now()
         else:
             dt = cls.to_ist(dt)
 
-        return dt.weekday() in cls.TRADING_DAYS
+        if dt.weekday() not in cls.TRADING_DAYS:
+            return False
+        if dt.date() in cls.NSE_HOLIDAYS:
+            return False
+        return True
 
     @classmethod
     def is_market_open(cls, dt: Optional[datetime] = None) -> bool:
@@ -207,10 +245,10 @@ class MarketHours:
             check_date += timedelta(days=1)
             check_dt = cls.IST.localize(datetime.combine(check_date, cls.MARKET_OPEN))
 
-        # Find next trading day
-        while check_dt.weekday() not in cls.TRADING_DAYS:
+        # Find next trading day (skip weekends AND holidays)
+        while check_date.weekday() not in cls.TRADING_DAYS or check_date in cls.NSE_HOLIDAYS:
             check_date += timedelta(days=1)
-            check_dt = cls.IST.localize(datetime.combine(check_date, cls.MARKET_OPEN))
+        check_dt = cls.IST.localize(datetime.combine(check_date, cls.MARKET_OPEN))
 
         return check_dt
 

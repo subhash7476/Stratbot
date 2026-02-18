@@ -17,7 +17,6 @@ from core.runner import TradingRunner, RunnerConfig
 from core.database.providers.market_data import DuckDBMarketDataProvider
 from core.database.providers.analytics import DuckDBAnalyticsProvider
 from core.execution.handler import ExecutionHandler, ExecutionConfig, ExecutionMode
-from core.execution.position_tracker import PositionTracker
 from core.brokers.paper_broker import PaperBroker
 from core.strategies.registry import create_strategy
 from core.strategies.precomputed_signals import PrecomputedSignalStrategy
@@ -107,7 +106,8 @@ class BacktestRunner:
             
             exec_config = ExecutionConfig(
                 mode=ExecutionMode.PAPER,
-                max_drawdown_limit=0.99 
+                max_drawdown_limit=0.99,
+                max_trades_per_day=999999
             )
             execution = ExecutionHandler(
                 db_manager=self.db,
@@ -120,8 +120,6 @@ class BacktestRunner:
             # Disable idempotency guard for backtests — each run is isolated
             execution._is_signal_already_executed = lambda signal_id: False
 
-            position_tracker = PositionTracker()
-
             runner = TradingRunner(
                 config=RunnerConfig(
                     symbols=[symbol],
@@ -133,7 +131,7 @@ class BacktestRunner:
                 analytics_provider=analytics,
                 strategies=[strategy],
                 execution_handler=execution,
-                position_tracker=position_tracker,
+                position_tracker=execution.position_tracker,
                 clock=clock
             )
 
@@ -273,7 +271,8 @@ class BacktestRunner:
                     swing_period=pixity_config.get('swing_period', 5),
                     reversion_k=pixity_config.get('reversion_k', 2.0),
                     time_stop_bars=pixity_config.get('time_stop_bars', 12),
-                    bar_minutes=bar_minutes
+                    bar_minutes=bar_minutes,
+                    skip_reversion=strategy_params.get('skip_reversion', pixity_config.get('skip_reversion', False)),
                 )
 
             # Filter events to backtest date range only (warmup data was for indicators)
@@ -344,7 +343,7 @@ class BacktestRunner:
             # 6. Setup Runner with Precomputed signals
             strategy = PrecomputedSignalStrategy(strategy_id, valid_events, strategy_params)
             broker = PaperBroker(clock)
-            exec_config = ExecutionConfig(mode=ExecutionMode.PAPER, max_drawdown_limit=0.99)
+            exec_config = ExecutionConfig(mode=ExecutionMode.PAPER, max_drawdown_limit=0.99, max_trades_per_day=999999)
             execution = ExecutionHandler(
                 db_manager=self.db,
                 clock=clock,
@@ -356,7 +355,6 @@ class BacktestRunner:
             # Disable idempotency guard for backtests — each run is isolated
             execution._is_signal_already_executed = lambda signal_id: False
 
-            position_tracker = PositionTracker()
             analytics = DuckDBAnalyticsProvider(db_manager=self.db) # Placeholder
 
             runner = TradingRunner(
@@ -370,7 +368,7 @@ class BacktestRunner:
                 analytics_provider=analytics,
                 strategies=[strategy],
                 execution_handler=execution,
-                position_tracker=position_tracker,
+                position_tracker=execution.position_tracker,
                 clock=clock
             )
 
@@ -442,12 +440,12 @@ class BacktestRunner:
         if run_id:
             try:
                 with self.db.backtest_reader(run_id) as conn:
-                    trades = conn.execute("SELECT pnl FROM trades").fetchall()
+                    trades = conn.execute("SELECT pnl, fees FROM trades").fetchall()
                     if trades:
-                        pnls = [t[0] for t in trades]
-                        total_trades = len(pnls)
-                        total_pnl = sum(pnls)
-                        wins = sum(1 for p in pnls if p > 0)
+                        net_pnls = [t[0] - t[1] for t in trades]
+                        total_trades = len(net_pnls)
+                        total_pnl = sum(net_pnls)
+                        wins = sum(1 for p in net_pnls if p > 0)
                         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
             except Exception:
                 total_trades = execution.metrics.trades_executed // 2
