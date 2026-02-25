@@ -1,0 +1,87 @@
+{
+  "checkpoint": "13pm",
+  "model": "logistic",
+  "feature_names": [
+    "open_5m_ret",
+    "open_15m_ret",
+    "open_30m_ret",
+    "open_30m_range",
+    "open_30m_range_ratio_partial",
+    "open_30m_high_break_min",
+    "open_30m_low_break_min",
+    "open_30m_twap_dist",
+    "partial_return",
+    "partial_range_pct",
+    "partial_clv",
+    "partial_linreg_r2",
+    "partial_linreg_slope",
+    "partial_hh_count_15m",
+    "partial_ll_count_15m",
+    "partial_realized_vol",
+    "partial_atr_5m",
+    "range_pct_before_11am_partial",
+    "partial_log_vol_expansion",
+    "partial_center_of_mass",
+    "partial_pct_above_twap",
+    "partial_twap_cross_count",
+    "partial_longest_above_twap",
+    "partial_longest_below_twap",
+    "partial_close_dist_twap",
+    "partial_twap_dist_std",
+    "partial_flip_count_15m",
+    "partial_dominant_direction_strength",
+    "partial_avg_adverse_excursion",
+    "partial_trend_score",
+    "partial_hh_minus_ll",
+    "partial_twap_lean",
+    "bn_nf_open_5m_spread",
+    "bn_nf_open_30m_spread",
+    "bn_nf_partial_return_spread",
+    "bn_nf_correlation_5m",
+    "bn_nf_range_ratio",
+    "bn_leads_nifty",
+    "prev_day_vol_pct",
+    "partial_vol_pct20",
+    "partial_range_pct20"
+  ],
+  "cluster_names": {
+    "0": "BearTrend",
+    "1": "BullTrend",
+    "2": "Choppy"
+  },
+  "results": [
+    {
+      "split": "Train",
+      "n": 712,
+      "accuracy": 0.7556,
+      "per_class": {
+        "BearTrend": 0.7868,
+        "BullTrend": 0.8067,
+        "Choppy": 0.6895
+      },
+      "high_conf_pct": 0.614,
+      "med_conf_pct": 0.222,
+      "low_conf_pct": 0.164,
+      "acc_high_conf": 0.8604,
+      "acc_med_conf": 0.6709
+    },
+    {
+      "split": "Val",
+      "n": 30,
+      "accuracy": 0.8,
+      "per_class": {
+        "BearTrend": 0.7273,
+        "BullTrend": 0.6667,
+        "Choppy": 0.9231
+      },
+      "high_conf_pct": 0.8,
+      "med_conf_pct": 0.133,
+      "low_conf_pct": 0.067,
+      "acc_high_conf": 0.8333,
+      "acc_med_conf": 0.5
+    }
+  ],
+  "block_a_excluded": true,
+  "train_thru": 2025,
+  "version": "v2.0-train_thru2025"
+}

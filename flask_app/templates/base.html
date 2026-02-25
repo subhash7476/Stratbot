@@ -50,12 +50,16 @@
                 <span class="font-medium">Database</span>
             </a>
             <a href="{{ url_for('scanner.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'scanner.index' %}active{% endif %}">
-                <i class="fas fa-radar w-6"></i>
-                <span class="font-medium">Scanner</span>
+                <i class="fas fa-chart-line w-6"></i>
+                <span class="font-medium">Nifty PM</span>
             </a>
             <a href="{{ url_for('ops.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'ops.index' %}active{% endif %}">
                 <i class="fas fa-microchip w-6"></i>
                 <span class="font-medium">Operations</span>
+            </a>
+            <a href="{{ url_for('paper_trading.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('paper_trading') %}active{% endif %}">
+                <i class="fas fa-paper-plane w-6"></i>
+                <span class="font-medium">Paper Trading</span>
             </a>
         </nav>
 

@@ -307,3 +307,149 @@ CREATE TABLE IF NOT EXISTS trades (
     metadata JSON
 );
 """
+
+# ─────────────────────────────────────────────────────────────
+# STOCK DAY-TYPE PAPER TRADING (SQLite — trading.db)
+# ─────────────────────────────────────────────────────────────
+
+PAPER_SIGNALS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS stock_paper_signals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date TEXT    NOT NULL,
+    symbol       TEXT    NOT NULL,
+    trading_symbol TEXT,
+    predicted_state TEXT NOT NULL,   -- BullTrend | BearTrend | Choppy
+    confidence   REAL    NOT NULL,
+    p_bull       REAL,
+    p_bear       REAL,
+    p_choppy     REAL,
+    signal_time  TEXT    NOT NULL,   -- ISO timestamp of the checkpoint bar
+    c_ret        REAL,               -- return from open to checkpoint
+    c_range      REAL,               -- H-L range from open to checkpoint / open
+    c_close_loc  REAL,               -- close location in AM range (0=low, 1=high)
+    broker       TEXT    DEFAULT 'paper',
+    UNIQUE(session_date, symbol)
+);
+"""
+
+PAPER_TRADES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS stock_paper_trades (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date     TEXT    NOT NULL,
+    symbol           TEXT    NOT NULL,
+    trading_symbol   TEXT,
+    direction        TEXT    NOT NULL,   -- long | short
+    broker           TEXT    NOT NULL DEFAULT 'paper',
+    confidence       REAL,
+    predicted_state  TEXT,
+    qty              INTEGER NOT NULL DEFAULT 1,
+    capital          REAL    NOT NULL DEFAULT 0,
+    entry_time       TEXT    NOT NULL,
+    entry_price      REAL    NOT NULL,
+    stop_price       REAL    NOT NULL,
+    target_price     REAL,
+    exit_time        TEXT,
+    exit_price       REAL,
+    exit_reason      TEXT,              -- time_exit | stop_hit | target_hit | trailing_stop | session_reset
+    pnl_gross_pct    REAL,
+    pnl_net_pct      REAL,
+    pnl_rs           REAL,             -- actual Rs profit/loss
+    cost_pct         REAL    DEFAULT 0.0,
+    created_at       TEXT    DEFAULT CURRENT_TIMESTAMP,
+    -- Trade Learning Protocol V1 (all nullable) --
+    regime_state          TEXT,    -- EXPANSION | CONTRACTION | SHOCK (VIX-based)
+    session_type          TEXT,    -- AM | PM
+    index_return_entry    REAL,    -- Nifty return from open to entry bar
+    breadth_ratio         REAL,    -- pct of signals with positive c_ret at entry
+    signal_rank           INTEGER, -- rank by confidence in today's universe (1=best)
+    signal_percentile     REAL,    -- confidence percentile vs universe (0-100)
+    intended_entry        REAL,    -- bar open at entry (model target price)
+    slippage_bps          REAL,    -- (actual - intended) / intended * 10000
+    dispersion_csad       REAL,    -- CSAD from dispersion engine at 11am
+    dispersion_pct        REAL,    -- CSAD rolling 60-day percentile
+    mae_pct               REAL,    -- max adverse excursion % from entry
+    mfe_pct               REAL,    -- max favorable excursion % from entry
+    mae_r                 REAL,    -- MAE in R-multiples (MAE / SL distance)
+    mfe_r                 REAL,    -- MFE in R-multiples (MFE / SL distance)
+    exit_efficiency       REAL     -- pnl_gross_pct / mfe_pct (0-1, higher=better)
+);
+"""
+
+# ─────────────────────────────────────────────────────────────
+# V9 PM SCALPER PAPER TRADING (SQLite — trading.db)
+# ─────────────────────────────────────────────────────────────
+
+V9_PAPER_SIGNALS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS v9_paper_signals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date TEXT    NOT NULL,
+    symbol       TEXT    NOT NULL,
+    predicted_state TEXT NOT NULL,
+    confidence   REAL    NOT NULL,
+    model_version TEXT,
+    signal_time  TEXT    NOT NULL,
+    UNIQUE(session_date, symbol)
+);
+"""
+
+V9_PAPER_TRADES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS v9_paper_trades (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date     TEXT    NOT NULL,
+    entry_time       TEXT    NOT NULL,
+    entry_price      REAL    NOT NULL,
+    stop_level       REAL    NOT NULL,
+    exit_time        TEXT,
+    exit_price       REAL,
+    exit_reason      TEXT,
+    confidence       REAL,
+    predicted_state  TEXT,
+    pnl_gross_pct    REAL,
+    pnl_net_pct      REAL,
+    model_version    TEXT,
+    created_at       TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# ─────────────────────────────────────────────────────────────
+# TRADE LEARNING PROTOCOL V1 (SQLite — trading.db / signals.db)
+# ─────────────────────────────────────────────────────────────
+
+TRADING_TRADE_CONTEXT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS trade_context (
+    trade_id            TEXT PRIMARY KEY,
+    model_version       TEXT DEFAULT 'TLP_V1_CORE',
+    universe_version    TEXT DEFAULT 'NIFTY_UNIVERSE_V1',
+    regime_state        TEXT,
+    regime_confidence   REAL,
+    session_type        TEXT,
+    dispersion_value    REAL,
+    dispersion_pct      REAL,
+    volatility_value    REAL,
+    volatility_pct      REAL,
+    breadth_ratio       REAL,
+    sl_distance         REAL,
+    risk_r              REAL,
+    pnl_rs              REAL,
+    mae_points          REAL,
+    mfe_points          REAL,
+    mae_r               REAL,
+    mfe_r               REAL,
+    theoretical_max_pnl REAL,
+    exit_efficiency     REAL,
+    signal_timestamp    TEXT,
+    entry_timestamp     TEXT,
+    exit_timestamp      TEXT,
+    created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+05:30', 'now', 'localtime')),
+    FOREIGN KEY(trade_id) REFERENCES trades(trade_id)
+);
+"""
+
+SIGNALS_DAILY_METRICS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS daily_structural_metrics (
+    timestamp           DATETIME PRIMARY KEY,
+    dispersion_csad     REAL,
+    volatility_atr      REAL,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""

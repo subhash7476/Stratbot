@@ -8,15 +8,16 @@ import time
 import os
 import json
 import logging
-from uuid import uuid4
+from uuid import uuid4, UUID
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Set
+from typing import Optional, Dict, Any, List, Set, Union
 
 from datetime import datetime
 from dataclasses import dataclass, replace, field
 from enum import Enum
 
-from core.events import SignalEvent, SignalType, TradeEvent, TradeStatus, OrderEvent, OrderType, OrderStatus
+from core.events import SignalEvent, SignalType, TradeEvent, TradeStatus, OrderEvent, OrderStatus, TradeStructuralContext
+from core.events import OrderType as EventOrderType
 from core.execution.rules import (
     enforce_signal_idempotency,
     enforce_risk_clearance,
@@ -24,8 +25,9 @@ from core.execution.rules import (
     ExecutionRuleError
 )
 from core.execution.order_models import NormalizedOrder, OrderMetadata, OrderSide
+from core.execution.order_models import OrderType as ModelOrderType
 # from core.execution.order_factory import OrderFactory # Replaced by internal logic for Phase 9A
-from core.execution.order_lifecycle import OrderStatus, FillEvent
+from core.execution.order_lifecycle import FillEvent
 from core.execution.order_tracker import OrderTracker
 from core.execution.risk_manager import RiskManager
 from core.execution.position_tracker import PositionTracker
@@ -49,6 +51,9 @@ from core.logging import setup_logger
 from core.instruments.instrument_parser import InstrumentParser
 from core.risk.greeks.portfolio_greeks import PortfolioGreeks
 from core.risk.greeks.greeks_model import Greeks
+from core.analytics.capture import CaptureEngine
+from core.analytics.diagnostic_engine import DiagnosticsEngine
+from core.database.writers import TradingWriter, _to_str
 
 
 class ExecutionMode(Enum):
@@ -115,6 +120,7 @@ class ExecutionHandler:
                  clock: Clock,
                  broker: BrokerAdapter,
                  risk_manager: Optional[RiskManager] = None,
+                 capture_engine: Optional[CaptureEngine] = None,
                  config: Optional[ExecutionConfig] = None,
                  metrics_path: str = "logs/execution_metrics.json",
                  initial_capital: float = 100000.0,
@@ -127,6 +133,8 @@ class ExecutionHandler:
 
         self.config = config or ExecutionConfig()
         self.risk_manager = risk_manager or RiskManager(config=self.config)
+        self.capture_engine = capture_engine
+        self.trading_writer = TradingWriter(self.db_manager)
 
         # Persistence Layer
         self.store = ExecutionStore()
@@ -259,14 +267,102 @@ class ExecutionHandler:
         self.logger.info(
             f"Received fill from broker: {fill.fill_id} for order {fill.order_id}")
         try:
+            from uuid import UUID
+            order_id_str = str(fill.order_id)
+            
+            order_state = self.order_tracker.get_order(order_id_str)
+            
             self.order_tracker.process_fill(fill)
             realized_pnl = self.position_tracker.update_from_fill(fill)
             self.pnl_tracker.update(fill, realized_pnl)
-            self.group_tracker.update_from_order_status(
-                uuid4(fill.order_id) if isinstance(fill.order_id, str) else fill.order_id)
+            
+            # Use raw correlation ID for group tracker
+            if isinstance(fill.order_id, (UUID, str)):
+                corr_id = fill.order_id if isinstance(fill.order_id, UUID) else UUID(fill.order_id)
+                self.group_tracker.update_from_order_status(corr_id)
+            
             self.group_pnl_tracker.update(fill, realized_pnl)
+
+            # TLP V1: Atomic Trade + Context Save
+            if order_state:
+                order = order_state.order
+                trade = TradeEvent(
+                    trade_id=fill.fill_id,
+                    signal_id_reference=order.signal_id,
+                    symbol=fill.symbol,
+                    status=TradeStatus.FILLED,
+                    direction=fill.side,
+                    quantity=fill.quantity,
+                    price=fill.price,
+                    fees=fill.fee,
+                    timestamp=fill.timestamp
+                )
+                
+                # Retrieve context from order metadata
+                context = None
+                if order.metadata and hasattr(order.metadata, 'strategy_metadata'):
+                    context = order.metadata.strategy_metadata.get('tlp_context')
+                
+                # If this is an exit, handle MAE/MFE
+                pos = self.position_tracker.get_position(order.symbol)
+                if order.side.value in ("SELL", "BUY") and pos.side == PositionSide.FLAT:
+                    # Closing trade
+                    # Retrieve original entry context from DB to get entry price and timestamp
+                    mae_mfe = self._compute_exit_diagnostics(order.symbol, order.signal_id, fill.price, fill.timestamp)
+                    self.trading_writer.update_trade_exit(
+                        trade_id=fill.fill_id, 
+                        exit_price=fill.price, 
+                        exit_ts=fill.timestamp, 
+                        pnl=realized_pnl, 
+                        fees=fill.fee,
+                        mae_mfe=mae_mfe
+                    )
+                else:
+                    # Opening trade
+                    self.trading_writer.save_trade(trade, context)
+
         except Exception as e:
             self.logger.error(f"Failed to process broker fill: {e}")
+
+    def _compute_exit_diagnostics(self, symbol: str, signal_id: str, exit_price: float, exit_ts: datetime) -> Optional[Dict]:
+        """Loads 1m bars and computes MAE/MFE for a closed trade."""
+        try:
+            # 1. Fetch entry details from trade_context
+            with self.db_manager.trading_reader() as conn:
+                row = conn.execute("""
+                    SELECT entry_timestamp, intended_entry, sl_distance, risk_r, pnl_rs, direction
+                    FROM trades t JOIN trade_context c ON t.trade_id = c.trade_id
+                    WHERE t.symbol = ? AND t.exit_price = 0.0
+                    ORDER BY t.timestamp DESC LIMIT 1
+                """, [symbol]).fetchone()
+                
+                if not row:
+                    return None
+                
+                entry_ts_str, entry_price, sl_dist, risk_r, _, direction = row
+                entry_ts = datetime.fromisoformat(entry_ts_str)
+                
+                # 2. Compute using DiagnosticsEngine
+                engine = DiagnosticsEngine(Path("data/market_data/nse/candles/1m"))
+                mae_mfe = engine.compute_mae_mfe(
+                    symbol=symbol,
+                    direction=direction,
+                    entry_price=entry_price,
+                    sl_distance=sl_dist,
+                    entry_ts=entry_ts,
+                    exit_ts=exit_ts
+                )
+                
+                # 3. Add Exit Efficiency & Theoretical Max
+                if mae_mfe and mae_mfe.get('mfe_points', 0) > 0:
+                    # We'll need quantity to compute Rs-based theoretical max
+                    # But for now we just return the points and R
+                    pass
+                
+                return mae_mfe
+        except Exception as e:
+            self.logger.warning(f"Exit diagnostics failed: {e}")
+            return None
 
     def process_signal(self,
                        signal: SignalEvent,
@@ -289,6 +385,26 @@ class ExecutionHandler:
 
             # PHASE 0: Idempotency Enforcement
             enforce_signal_idempotency(str(signal_id), self._seen_signals)
+
+            # TLP V1: Mandatory Risk Enforcement
+            sl_dist = signal.metadata.get('sl_distance')
+            risk_r = signal.metadata.get('risk_r')
+            
+            if signal.signal_type != SignalType.EXIT:
+                if sl_dist is None or risk_r is None:
+                    self.logger.error(f"REJECTED: Signal {signal_id} missing mandatory risk definition (sl_distance/risk_r)")
+                    return None
+                
+                # Ensure they are floats
+                try:
+                    sl_dist_f = float(sl_dist)
+                    risk_r_f = float(risk_r)
+                except (ValueError, TypeError):
+                    self.logger.error(f"REJECTED: Signal {signal_id} has invalid risk types")
+                    return None
+            else:
+                sl_dist_f = 0.0
+                risk_r_f = 0.0
 
             # 0. Manual Kill Switch File Flag
             if not getattr(self, '_kill_switch_disabled', False) and os.path.exists("STOP"):
@@ -329,27 +445,38 @@ class ExecutionHandler:
                 risk_approved, reason=f"Risk limits exceeded for {signal.symbol}")
 
             # Phase 9C: Greek Risk Check
-            # Note: Requires underlying price/volatility which might not be fully available in signal context.
-            # We perform a best-effort check if metadata is provided.
             self._check_greek_limits(signal, current_price)
+
+            # TLP V1: Capture Structural Context Snapshot
+            tlp_context = None
+            if self.capture_engine and signal.signal_type != SignalType.EXIT:
+                try:
+                    tlp_context = self.capture_engine.capture_context(
+                        symbol=signal.symbol,
+                        timestamp=signal.timestamp,
+                        signal_rank=signal.metadata.get('rank', 0),
+                        signal_percentile=signal.metadata.get('percentile', 0.0),
+                        sl_distance=sl_dist_f,
+                        risk_r=risk_r_f,
+                        signal_score=signal.confidence
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Failed to capture TLP context: {e}")
 
             # PHASE 0: Lock signal as seen only AFTER rules pass (Commit intent)
             self._seen_signals.add(str(signal_id))
 
             # PHASE 1: Order Creation (Deterministic Intake)
-            # Phase 4: Pass position context for EXIT resolution
             current_position = self.position_tracker.get_position(
                 signal.symbol)
 
             # Phase 9A: Instrument Abstraction & Order Creation
-            # Replacing OrderFactory logic to support Instrument objects
             instrument = InstrumentParser.parse(signal.symbol)
 
             # Determine Side and Quantity
             if signal.signal_type == SignalType.EXIT:
                 if current_position.side == PositionSide.FLAT:
-                    # Cannot exit flat position
-                    return None  # Or raise error, but returning None skips execution safely
+                    return None 
 
                 side = OrderSide.SELL if current_position.side == PositionSide.LONG else OrderSide.BUY
                 quantity = current_position.quantity  # Close full position
@@ -357,14 +484,25 @@ class ExecutionHandler:
                 side = OrderSide.BUY if signal.signal_type == SignalType.BUY else OrderSide.SELL
                 quantity = self._calculate_position_size(signal, current_price)
 
+            # Attach TLP Context to Metadata
+            strategy_meta = signal.metadata.copy() if signal.metadata else {}
+            if tlp_context:
+                strategy_meta['tlp_context'] = tlp_context
+
+            order_meta = OrderMetadata(
+                original_confidence=signal.confidence,
+                strategy_metadata=strategy_meta
+            )
+
             order = NormalizedOrder(
                 instrument=instrument,
                 side=side,
                 quantity=int(quantity),
-                order_type=OrderType.MARKET,
+                order_type=ModelOrderType.MARKET,
                 strategy_id=signal.strategy_id,
                 signal_id=str(signal_id),
-                timestamp=self.clock.now()
+                timestamp=self.clock.now(),
+                metadata=order_meta
             )
 
             # PHASE 2: Pre-trade Risk Integration
@@ -390,47 +528,38 @@ class ExecutionHandler:
                 # Simulate immediate fill for backtesting (paper broker)
                 from core.brokers.paper_broker import PaperBroker
                 if isinstance(self.broker, PaperBroker):
-                    from core.events import TradeEvent, TradeStatus
-                    from core.execution.order_lifecycle import FillEvent
                     import uuid as uuid_module
                     fill_id = str(uuid_module.uuid4())
-                    trade = TradeEvent(
-                        trade_id=fill_id,
-                        signal_id_reference=order.signal_id,
-                        symbol=order.symbol,
-                        direction=order.side.value,
-                        quantity=order.quantity,
-                        price=current_price,  # Use current market price for fill
-                        timestamp=order.timestamp,
-                        status=TradeStatus.FILLED,
-                        fees=self._calculate_fees(order.quantity, current_price)
-                    )
+                    
                     # Update position tracker so equity includes position values
                     fill_event = FillEvent(
                         fill_id=fill_id,
-                        order_id=order.correlation_id,
+                        order_id=str(order.correlation_id),
                         symbol=order.symbol,
                         quantity=order.quantity,
                         price=current_price,
                         timestamp=order.timestamp,
                         side=order.side.value,
-                        fee=trade.fees,
+                        fee=self._calculate_fees(order.quantity, current_price),
                     )
-                    self.position_tracker.update_from_fill(fill_event, persist=False)
-                    self._trade_history.append(trade)
-                    self._trades_today += 1
-                    self._update_equity_metrics(trade)
-                    self._persist_metrics(current_price, order.symbol)
-                    return trade
+                    
+                    # Instead of creating TradeEvent manually here, we route through _handle_broker_fill
+                    # which is the single source of truth for fill ingestion.
+                    self._handle_broker_fill(fill_event)
+                    
+                    # We need to return the resulting TradeEvent if possible, but process_signal
+                    # returns Optional[NormalizedOrder]. PaperBroker usually calls back.
+                    # For compatibility, we'll return the order.
+                    return order
 
             except Exception as e:
                 self.logger.error(f"Failed to place order with broker: {e}")
-                # Note: Order remains in CREATED state in tracker, could be marked FAILED if needed
 
             return order
 
         finally:
             self._processing_signal = False
+
 
     def process_group_signal(self, signals: List[SignalEvent], group_type: OrderGroupType) -> Optional[str]:
         """
@@ -476,7 +605,7 @@ class ExecutionHandler:
                 instrument=instrument,
                 side=side,
                 quantity=int(quantity),
-                order_type=OrderType.MARKET,
+                order_type=ModelOrderType.MARKET,
                 strategy_id=signal.strategy_id,
                 signal_id=str(uuid4()),  # Generate new ID
                 timestamp=self.clock.now(),

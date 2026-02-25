@@ -1,0 +1,615 @@
+{% extends "base.html" %}
+{% block title %}Paper Trading — Stock Day-Type{% endblock %}
+{% block breadcrumb %}Paper Trading / Stock Day-Type{% endblock %}
+
+{% block head %}
+<style>
+    .signal-bull    { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); }
+    .signal-bear    { background: rgba(239,68,68,0.08);  border-color: rgba(239,68,68,0.3); }
+    .signal-choppy  { background: rgba(100,116,139,0.08);border-color: rgba(100,116,139,0.3);}
+    .signal-pending { background: rgba(71,85,105,0.06);  border-color: rgba(71,85,105,0.2); }
+    .badge-bull     { background:#065f46; color:#6ee7b7; }
+    .badge-bear     { background:#7f1d1d; color:#fca5a5; }
+    .badge-choppy   { background:#1e293b; color:#94a3b8; }
+    .badge-pending  { background:#0f172a; color:#475569; }
+    .pnl-pos        { color:#34d399; }
+    .pnl-neg        { color:#f87171; }
+    .conf-high      { color:#34d399; }
+    .conf-med       { color:#fbbf24; }
+    .conf-low       { color:#94a3b8; }
+    .refresh-spin   { animation: spin 1s linear; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .table-row:hover { background: rgba(255,255,255,0.03); }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- -- Header Row ---------------------------------------------------------- -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-white">Stock Day-Type Paper Trading</h1>
+        <p class="text-sm text-slate-400 mt-1" id="page-subtitle">10:00 AM classifier | SL 1% | TP 2% | Trailing SL | Rs 50K/trade | Min conf: 50%</p>
+    </div>
+    <div class="flex items-center space-x-3">
+        <!-- Broker selector -->
+        <div class="flex items-center space-x-2">
+            <span class="text-xs text-slate-400 uppercase tracking-wider">Broker:</span>
+            <select id="broker-select"
+                    class="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </select>
+        </div>
+        <!-- Refresh button -->
+        <button id="refresh-btn"
+                class="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            <i id="refresh-icon" class="fas fa-sync-alt text-xs"></i>
+            <span>Refresh</span>
+        </button>
+        <div class="text-xs text-slate-500">
+            Auto <span id="countdown">30</span>s
+        </div>
+    </div>
+</div>
+
+<!-- -- Summary Cards ------------------------------------------------------- -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6" id="summary-cards">
+    <div class="glass rounded-xl p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Signals Today</p>
+        <p class="text-2xl font-bold text-white" id="card-signals">--</p>
+        <p class="text-xs text-slate-500 mt-1">
+            <span class="text-emerald-400" id="card-bull">--</span> bull /
+            <span class="text-red-400"     id="card-bear">--</span> bear /
+            <span class="text-slate-400"   id="card-choppy">--</span> choppy
+        </p>
+    </div>
+    <div class="glass rounded-xl p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Trades Closed</p>
+        <p class="text-2xl font-bold text-white" id="card-trades">--</p>
+        <p class="text-xs text-slate-500 mt-1">
+            <span class="text-emerald-400" id="card-wins">--</span> W /
+            <span class="text-red-400"     id="card-losses">--</span> L
+            &nbsp;|&nbsp;WR: <span id="card-wr">--</span>
+        </p>
+    </div>
+    <div class="glass rounded-xl p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Net P&amp;L (Rs)</p>
+        <p class="text-2xl font-bold" id="card-pnl-rs">--</p>
+        <p class="text-xs text-slate-500 mt-1" id="card-pnl-pct">--</p>
+    </div>
+    <div class="glass rounded-xl p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Open Positions</p>
+        <p class="text-2xl font-bold text-white" id="card-open">--</p>
+        <p class="text-xs text-slate-500 mt-1">
+            Avg conf: <span id="card-conf">--</span>
+        </p>
+    </div>
+</div>
+
+<!-- -- Main Two-Column Grid ------------------------------------------------ -->
+<div class="grid grid-cols-1 xl:grid-cols-5 gap-6 mb-6">
+
+    <!-- LEFT: Signal grid (3/5) -->
+    <div class="xl:col-span-3 glass rounded-xl overflow-hidden">
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+            <h3 class="font-semibold text-white">
+                <i class="fas fa-table-cells mr-2 text-blue-400"></i>Signal Grid
+            </h3>
+            <div class="flex items-center space-x-2">
+                <button onclick="filterSignals('all')"
+                        id="filter-all"
+                        class="text-xs px-2 py-1 rounded bg-blue-600 text-white">All</button>
+                <button onclick="filterSignals('BullTrend')"
+                        id="filter-bull"
+                        class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600">Bull</button>
+                <button onclick="filterSignals('BearTrend')"
+                        id="filter-bear"
+                        class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600">Bear</button>
+                <button onclick="filterSignals('Choppy')"
+                        id="filter-choppy"
+                        class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600">Choppy</button>
+            </div>
+        </div>
+        <div class="overflow-y-auto" style="max-height:480px;">
+            <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-[#1e293b] text-slate-400 text-xs uppercase">
+                    <tr>
+                        <th class="px-4 py-3 text-left">Symbol</th>
+                        <th class="px-4 py-3 text-left">Prediction</th>
+                        <th class="px-4 py-3 text-right">Conf.</th>
+                        <th class="px-4 py-3 text-right">CLoc</th>
+                        <th class="px-4 py-3 text-right">Ret</th>
+                        <th class="px-4 py-3 text-right">P-Bull</th>
+                        <th class="px-4 py-3 text-right">P-Bear</th>
+                    </tr>
+                </thead>
+                <tbody id="signal-table-body">
+                    <tr>
+                        <td colspan="7" class="px-4 py-8 text-center text-slate-500 text-sm">
+                            <i class="fas fa-spinner fa-spin mr-2"></i>Loading signals...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- RIGHT: Positions + P&L (2/5) -->
+    <div class="xl:col-span-2 flex flex-col gap-4">
+
+        <!-- Active Positions -->
+        <div class="glass rounded-xl overflow-hidden flex-1">
+            <div class="p-4 border-b border-slate-800">
+                <h3 class="font-semibold text-white">
+                    <i class="fas fa-bolt mr-2 text-yellow-400"></i>Active Positions
+                </h3>
+            </div>
+            <div class="overflow-y-auto" style="max-height:260px;">
+                <table class="w-full text-xs">
+                    <thead class="sticky top-0 bg-[#1e293b] text-slate-400 uppercase">
+                        <tr>
+                            <th class="px-3 py-2 text-left">Symbol</th>
+                            <th class="px-3 py-2 text-left">Dir</th>
+                            <th class="px-3 py-2 text-right">Qty</th>
+                            <th class="px-3 py-2 text-right">Entry</th>
+                            <th class="px-3 py-2 text-right">SL</th>
+                            <th class="px-3 py-2 text-right">TP</th>
+                            <th class="px-3 py-2 text-right">LTP</th>
+                            <th class="px-3 py-2 text-right">P&amp;L Rs</th>
+                        </tr>
+                    </thead>
+                    <tbody id="position-table-body">
+                        <tr>
+                            <td colspan="8" class="px-3 py-6 text-center text-slate-500">
+                                No open positions
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- P&L Bar Chart -->
+        <div class="glass rounded-xl overflow-hidden">
+            <div class="p-4 border-b border-slate-800">
+                <h3 class="font-semibold text-white">
+                    <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Today's P&amp;L (Rs)
+                </h3>
+            </div>
+            <div class="p-4 space-y-2" id="pnl-bars" style="max-height:220px;overflow-y:auto;">
+                <p class="text-slate-500 text-xs">No closed trades yet.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- -- Trade History -------------------------------------------------------- -->
+<div class="glass rounded-xl overflow-hidden">
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+        <h3 class="font-semibold text-white">
+            <i class="fas fa-history mr-2 text-purple-400"></i>Trade History
+        </h3>
+        <label class="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">
+            <input type="checkbox" id="show-all-dates" class="rounded border-slate-600">
+            <span>Show all dates</span>
+        </label>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-[#1e293b] text-slate-400 text-xs uppercase">
+                <tr>
+                    <th class="px-4 py-3 text-left">Date</th>
+                    <th class="px-4 py-3 text-left">Symbol</th>
+                    <th class="px-4 py-3 text-left">Dir</th>
+                    <th class="px-4 py-3 text-right">Qty</th>
+                    <th class="px-4 py-3 text-right">Entry</th>
+                    <th class="px-4 py-3 text-right">Exit</th>
+                    <th class="px-4 py-3 text-right">P&amp;L Rs</th>
+                    <th class="px-4 py-3 text-right">Net%</th>
+                    <th class="px-4 py-3 text-left">Reason</th>
+                    <th class="px-4 py-3 text-right">Conf.</th>
+                </tr>
+            </thead>
+            <tbody id="trade-table-body">
+                <tr>
+                    <td colspan="10" class="px-4 py-8 text-center text-slate-500 text-sm">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>Loading trades...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// -------------------------------------------------------------------------
+//  State
+// -------------------------------------------------------------------------
+let allSignals   = [];
+let activeFilter = 'all';
+let minConfPct   = 50;   // % — updated from api/status
+let countdown   = 30;
+let countdownTimer;
+
+// -------------------------------------------------------------------------
+//  Bootstrap on load
+// -------------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+    loadBrokers();
+    refreshAll();
+    startCountdown();
+
+    // Fast position refresh every 5 seconds (independent of 30s full refresh)
+    setInterval(loadPositions, 5000);
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        refreshAll();
+        resetCountdown();
+    });
+
+    document.getElementById('broker-select').addEventListener('change', function () {
+        setBroker(this.value);
+    });
+
+    document.getElementById('show-all-dates').addEventListener('change', () => {
+        loadTrades();
+    });
+});
+
+// -------------------------------------------------------------------------
+//  Auto-refresh countdown
+// -------------------------------------------------------------------------
+function startCountdown() {
+    countdownTimer = setInterval(() => {
+        countdown--;
+        document.getElementById('countdown').textContent = countdown;
+        if (countdown <= 0) {
+            refreshAll();
+            resetCountdown();
+        }
+    }, 1000);
+}
+
+function resetCountdown() {
+    countdown = 30;
+    document.getElementById('countdown').textContent = countdown;
+}
+
+// -------------------------------------------------------------------------
+//  Brokers
+// -------------------------------------------------------------------------
+function loadBrokers() {
+    fetch('/paper-trading/api/brokers')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const sel = document.getElementById('broker-select');
+            sel.innerHTML = '';
+            data.brokers.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.id;
+                opt.textContent = `${b.label} (${(b.cost_pct * 100).toFixed(3)}%)`;
+                sel.appendChild(opt);
+            });
+            fetch('/paper-trading/api/status')
+                .then(r => r.json())
+                .then(s => {
+                    if (s.broker) sel.value = s.broker;
+                    // Update subtitle + threshold with live config values
+                    if (s.min_confidence !== undefined) {
+                        minConfPct = Math.round(s.min_confidence * 100);
+                        const slPct = ((s.stop_pct || 0.01) * 100).toFixed(0);
+                        document.getElementById('page-subtitle').textContent =
+                            `10:00 AM classifier | SL ${slPct}% | TP 2% | Trailing SL | Rs 50K/trade | Min conf: ${minConfPct}%`;
+                        renderSignals();  // re-render with correct threshold colours
+                    }
+                });
+        });
+}
+
+function setBroker(broker) {
+    fetch('/paper-trading/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broker }),
+    }).then(r => r.json()).then(d => {
+        if (!d.success) console.warn('Broker change failed:', d.error);
+    });
+}
+
+// -------------------------------------------------------------------------
+//  Master refresh
+// -------------------------------------------------------------------------
+function refreshAll() {
+    spinRefresh(true);
+    Promise.all([
+        loadSummary(),
+        loadSignals(),
+        loadPositions(),
+        loadTrades(),
+    ]).finally(() => spinRefresh(false));
+}
+
+function spinRefresh(on) {
+    const ic = document.getElementById('refresh-icon');
+    if (on) ic.classList.add('refresh-spin'); else ic.classList.remove('refresh-spin');
+}
+
+// -------------------------------------------------------------------------
+//  Summary cards
+// -------------------------------------------------------------------------
+function loadSummary() {
+    return fetch('/paper-trading/api/summary')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const s = data.summary;
+            setText('card-signals', s.signals);
+            setText('card-bull',    s.bull_signals);
+            setText('card-bear',    s.bear_signals);
+            setText('card-choppy',  s.choppy_signals);
+            setText('card-trades',  s.trades);
+            setText('card-wins',    s.wins);
+            setText('card-losses',  s.losses);
+            setText('card-wr',      s.win_rate != null ? s.win_rate + '%' : '--');
+            setText('card-open',    s.open_positions);
+            setText('card-conf',    s.avg_confidence != null ? s.avg_confidence + '%' : '--');
+
+            // Net P&L in Rs (primary)
+            const pnlRsEl = document.getElementById('card-pnl-rs');
+            const pnlPctEl = document.getElementById('card-pnl-pct');
+            if (s.total_pnl_rs != null && s.total_pnl_rs !== 0) {
+                const sign = s.total_pnl_rs >= 0 ? '+' : '';
+                pnlRsEl.textContent = sign + 'Rs ' + s.total_pnl_rs.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                pnlRsEl.className = 'text-2xl font-bold ' + (s.total_pnl_rs >= 0 ? 'text-emerald-400' : 'text-red-400');
+            } else {
+                pnlRsEl.textContent = 'Rs 0';
+                pnlRsEl.className = 'text-2xl font-bold text-slate-400';
+            }
+            // Net P&L % (secondary)
+            if (s.total_pnl_net != null) {
+                const sign2 = s.total_pnl_net >= 0 ? '+' : '';
+                pnlPctEl.textContent = 'Net ' + sign2 + s.total_pnl_net.toFixed(3) + '% across all trades';
+            } else {
+                pnlPctEl.textContent = '--';
+            }
+        })
+        .catch(() => {});
+}
+
+// -------------------------------------------------------------------------
+//  Signals
+// -------------------------------------------------------------------------
+function loadSignals() {
+    return fetch('/paper-trading/api/signals')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            allSignals = data.signals || [];
+            renderSignals();
+        })
+        .catch(() => {});
+}
+
+function filterSignals(state) {
+    activeFilter = state;
+    ['all','bull','bear','choppy'].forEach(f => {
+        const btn = document.getElementById('filter-' + f);
+        if (btn) {
+            btn.className = 'text-xs px-2 py-1 rounded ' +
+                (((f === 'all' && state === 'all') ||
+                  (f === 'bull' && state === 'BullTrend') ||
+                  (f === 'bear' && state === 'BearTrend') ||
+                  (f === 'choppy' && state === 'Choppy'))
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600');
+        }
+    });
+    renderSignals();
+}
+
+function renderSignals() {
+    const tbody = document.getElementById('signal-table-body');
+    let rows = allSignals;
+    if (activeFilter !== 'all') {
+        rows = rows.filter(s => s.predicted_state === activeFilter);
+    }
+    const order = { BullTrend: 0, BearTrend: 1, Choppy: 2, PENDING: 3 };
+    rows = [...rows].sort((a, b) => {
+        const oa = order[a.predicted_state] ?? 4;
+        const ob = order[b.predicted_state] ?? 4;
+        if (oa !== ob) return oa - ob;
+        return (b.confidence || 0) - (a.confidence || 0);
+    });
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-500 text-sm">No signals match the filter.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(s => {
+        const st    = s.predicted_state || 'PENDING';
+        const cls   = st === 'BullTrend' ? 'signal-bull' : st === 'BearTrend' ? 'signal-bear' : st === 'Choppy' ? 'signal-choppy' : 'signal-pending';
+        const badge = st === 'BullTrend' ? 'badge-bull' : st === 'BearTrend' ? 'badge-bear' : st === 'Choppy' ? 'badge-choppy' : 'badge-pending';
+        const conf  = s.confidence != null ? s.confidence * 100 : null;
+        // Colour relative to the live min_confidence threshold
+        const tradeable = conf != null && conf >= minConfPct && (st === 'BullTrend' || st === 'BearTrend');
+        const confCls = conf == null ? 'conf-low'
+                      : conf >= minConfPct ? (conf >= 70 ? 'conf-high' : 'conf-med')
+                      : 'conf-low';
+        const sym   = s.trading_symbol || s.symbol.split('|').pop();
+        const cloc  = s.c_close_loc != null ? s.c_close_loc.toFixed(3) : '--';
+        const ret   = s.c_ret != null ? (s.c_ret * 100).toFixed(2) + '%' : '--';
+        const pBull = s.p_bull != null ? (s.p_bull * 100).toFixed(0) + '%' : '--';
+        const pBear = s.p_bear != null ? (s.p_bear * 100).toFixed(0) + '%' : '--';
+        const retCls = s.c_ret > 0 ? 'text-emerald-400' : s.c_ret < 0 ? 'text-red-400' : 'text-slate-400';
+        const tradeableDot = tradeable ? '<span title="Above min confidence — will trade" class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 align-middle"></span>' : '';
+        return `
+        <tr class="border-b border-slate-800 table-row ${cls}">
+            <td class="px-4 py-2 font-semibold text-white">${tradeableDot}${sym}</td>
+            <td class="px-4 py-2">
+                <span class="px-2 py-0.5 rounded text-xs font-bold ${badge}">${st}</span>
+            </td>
+            <td class="px-4 py-2 text-right ${confCls}">${conf != null ? conf.toFixed(1) + '%' : '--'}</td>
+            <td class="px-4 py-2 text-right text-slate-300">${cloc}</td>
+            <td class="px-4 py-2 text-right ${retCls}">${ret}</td>
+            <td class="px-4 py-2 text-right text-emerald-400/70">${pBull}</td>
+            <td class="px-4 py-2 text-right text-red-400/70">${pBear}</td>
+        </tr>`;
+    }).join('');
+}
+
+// -------------------------------------------------------------------------
+//  Positions
+// -------------------------------------------------------------------------
+function loadPositions() {
+    return fetch('/paper-trading/api/positions')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            renderPositions(data.positions || []);
+        })
+        .catch(() => {});
+}
+
+function renderPositions(positions) {
+    const tbody = document.getElementById('position-table-body');
+    // Keep Open Positions card in sync with the live position count
+    setText('card-open', positions.length);
+    if (!positions.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-500 text-xs">No open positions</td></tr>';
+        return;
+    }
+    tbody.innerHTML = positions.map(p => {
+        const sym    = p.trading_symbol || p.symbol.split('|').pop();
+        const dirCls = p.direction === 'long' ? 'text-emerald-400' : 'text-red-400';
+        const qty    = p.qty || 1;
+        const ltp    = p.current_price ? p.current_price.toFixed(2) : '--';
+        const sl     = p.stop_price ? p.stop_price.toFixed(2) : '--';
+        const tp     = p.target_price ? p.target_price.toFixed(2) : '--';
+        const pnlRs  = p.unrealised_rs;
+        const pnlCls = pnlRs > 0 ? 'pnl-pos' : pnlRs < 0 ? 'pnl-neg' : 'text-slate-400';
+        const pnlTxt = pnlRs != null ? (pnlRs >= 0 ? '+' : '') + pnlRs.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '--';
+        return `
+        <tr class="border-b border-slate-800 table-row">
+            <td class="px-3 py-2 font-semibold text-white text-xs">${sym}</td>
+            <td class="px-3 py-2 text-xs font-bold ${dirCls}">${p.direction?.toUpperCase()}</td>
+            <td class="px-3 py-2 text-right text-slate-300 text-xs">${qty}</td>
+            <td class="px-3 py-2 text-right text-slate-300 text-xs">${p.entry_price?.toFixed(2) || '--'}</td>
+            <td class="px-3 py-2 text-right text-red-400/70 text-xs">${sl}</td>
+            <td class="px-3 py-2 text-right text-emerald-400/70 text-xs">${tp}</td>
+            <td class="px-3 py-2 text-right text-slate-300 text-xs">${ltp}</td>
+            <td class="px-3 py-2 text-right text-xs font-semibold ${pnlCls}">${pnlTxt}</td>
+        </tr>`;
+    }).join('');
+}
+
+// -------------------------------------------------------------------------
+//  Trades
+// -------------------------------------------------------------------------
+function loadTrades() {
+    const allDates = document.getElementById('show-all-dates').checked;
+    const url = '/paper-trading/api/trades' + (allDates ? '?all=true' : '');
+    return fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            renderTrades(data.trades || []);
+            renderPnlBars(data.trades || []);
+        })
+        .catch(() => {});
+}
+
+function renderTrades(trades) {
+    const tbody = document.getElementById('trade-table-body');
+    if (!trades.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-slate-500">No completed trades yet.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = trades.map(t => {
+        const sym    = t.trading_symbol || t.symbol.split('|').pop();
+        const dirCls = t.direction === 'long' ? 'text-emerald-400' : 'text-red-400';
+        const qty    = t.qty || 1;
+        const entryT = t.entry_time ? t.entry_time.replace('T', ' ').slice(11, 16) : '--';
+        const exitT  = t.exit_time  ? t.exit_time.replace('T', ' ').slice(11, 16)  : '--';
+
+        // P&L in Rs
+        const pnlRs  = t.pnl_rs;
+        const hasPnl = pnlRs != null && pnlRs !== undefined;
+        const pnlCls = hasPnl ? (pnlRs >= 0 ? 'pnl-pos font-semibold' : 'pnl-neg font-semibold') : 'text-slate-400';
+        const pnlTxt = hasPnl ? (pnlRs >= 0 ? '+' : '') + pnlRs.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '--';
+
+        // P&L %
+        const net    = t.pnl_net_pct != null ? (t.pnl_net_pct * 100).toFixed(3) : '--';
+        const netVal = parseFloat(net);
+        const netCls = netVal > 0 ? 'pnl-pos' : netVal < 0 ? 'pnl-neg' : 'text-slate-400';
+        const netTxt = !isNaN(netVal) ? (netVal >= 0 ? '+' : '') + net + '%' : '--';
+
+        const conf   = t.confidence ? (t.confidence * 100).toFixed(0) + '%' : '--';
+        const reasonMap = {
+            'stop_hit': '<span class="text-red-400">SL Hit</span>',
+            'target_hit': '<span class="text-emerald-400">TP Hit</span>',
+            'trailing_stop': '<span class="text-yellow-400">Trail SL</span>',
+            'time_exit': '<span class="text-blue-400">Time Exit</span>',
+            'session_reset': '<span class="text-slate-500">Reset</span>',
+        };
+        const reasonHtml = reasonMap[t.exit_reason] || `<span class="text-slate-400">${t.exit_reason || '--'}</span>`;
+
+        return `
+        <tr class="border-b border-slate-800 table-row">
+            <td class="px-4 py-2 text-xs text-slate-400">${t.session_date || '--'}</td>
+            <td class="px-4 py-2 font-semibold text-white">${sym}</td>
+            <td class="px-4 py-2 text-xs font-bold ${dirCls}">${t.direction?.toUpperCase()}</td>
+            <td class="px-4 py-2 text-right text-xs text-slate-300">${qty}</td>
+            <td class="px-4 py-2 text-right">
+                <span class="text-slate-300">${t.entry_price?.toFixed(2) || '--'}</span>
+                <div class="text-xs text-slate-500 leading-tight">${entryT}</div>
+            </td>
+            <td class="px-4 py-2 text-right">
+                <span class="text-slate-300">${t.exit_price?.toFixed(2) || '--'}</span>
+                <div class="text-xs text-slate-500 leading-tight">${exitT}</div>
+            </td>
+            <td class="px-4 py-2 text-right ${pnlCls}">${pnlTxt}</td>
+            <td class="px-4 py-2 text-right text-xs ${netCls}">${netTxt}</td>
+            <td class="px-4 py-2 text-xs">${reasonHtml}</td>
+            <td class="px-4 py-2 text-right text-xs text-slate-400">${conf}</td>
+        </tr>`;
+    }).join('');
+}
+
+function renderPnlBars(trades) {
+    const container = document.getElementById('pnl-bars');
+    const closed = trades.filter(t => t.exit_time && t.pnl_rs != null);
+    if (!closed.length) {
+        container.innerHTML = '<p class="text-slate-500 text-xs">No closed trades yet.</p>';
+        return;
+    }
+    const recent = [...closed].sort((a,b) => a.entry_time > b.entry_time ? 1 : -1).slice(-10);
+    const maxAbs = Math.max(...recent.map(t => Math.abs(t.pnl_rs))) || 1;
+    container.innerHTML = recent.map(t => {
+        const sym  = t.trading_symbol || t.symbol.split('|').pop();
+        const rs   = t.pnl_rs;
+        const pos  = rs >= 0;
+        const barW = Math.max(4, Math.round(Math.abs(rs) / maxAbs * 100));
+        const barCls = pos ? 'bg-emerald-500' : 'bg-red-500';
+        const rsTxt = (pos ? '+' : '') + rs.toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+        return `
+        <div class="flex items-center space-x-2">
+            <span class="text-xs text-slate-400 w-20 truncate">${sym}</span>
+            <div class="flex-1 h-3 bg-slate-800 rounded-full overflow-hidden">
+                <div class="${barCls} h-full rounded-full" style="width:${barW}%"></div>
+            </div>
+            <span class="text-xs ${pos ? 'pnl-pos' : 'pnl-neg'} w-16 text-right">${rsTxt}</span>
+        </div>`;
+    }).join('');
+}
+
+// -------------------------------------------------------------------------
+//  Utilities
+// -------------------------------------------------------------------------
+function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = (val != null ? val : '--');
+}
+</script>
+{% endblock %}

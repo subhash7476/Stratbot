@@ -144,6 +144,7 @@
                         <option value="MCX">MCX</option>
                         <option value="NSE_INDEX">NSE_INDEX</option>
                         <option value="FO_STOCKS">FO_STOCKS TABLE</option>
+                        <option value="NIFTY_50">NIFTY 50 (CSV)</option>
                     </select>
                     <button onclick="addSelectedSymbol()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg transition-colors whitespace-nowrap">
                         <i class="fas fa-plus mr-2"></i> Add
@@ -740,6 +741,38 @@
                 }
             } catch(e) {
                 alert("Error fetching FO stocks");
+            }
+            document.getElementById('exchangeSelector').value = 'NSE';
+        } else if (value === 'NIFTY_50') {
+            if (!confirm("Add all NIFTY 50 constituents from CSV to watchlist?")) {
+                document.getElementById('exchangeSelector').value = 'NSE';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/database/api/nifty50-symbols`);
+                const data = await res.json();
+                if (data.success) {
+                    let addedCount = 0;
+                    data.data.forEach(s => {
+                        if (!fetcherWatchlist.find(i => i.key === s.instrument_key)) {
+                            fetcherWatchlist.push({ 
+                                key: s.instrument_key, 
+                                symbol: s.trading_symbol, 
+                                exchange: s.instrument_key.split('|')[0], 
+                                added: new Date().toLocaleDateString() 
+                            });
+                            selectedForDownload.add(s.instrument_key);
+                            addedCount++;
+                        }
+                    });
+                    updateWatchlistUI();
+                    alert(`Added ${addedCount} NIFTY 50 symbols to watchlist.`);
+                } else {
+                    alert("Error: " + data.message);
+                }
+            } catch(e) {
+                alert("Error fetching NIFTY 50 symbols");
             }
             document.getElementById('exchangeSelector').value = 'NSE';
         }

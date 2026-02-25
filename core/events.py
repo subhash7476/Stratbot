@@ -51,6 +51,25 @@ class OHLCVBar:
 
 
 @dataclass(frozen=True)
+class TradeStructuralContext:
+    """Snapshot of market conditions at the time of signal generation."""
+    regime_state: str
+    regime_confidence: float
+    session_type: str        # 'AM' or 'PM'
+    dispersion_value: float
+    dispersion_pct: float
+    volatility_value: float
+    volatility_pct: float
+    breadth_ratio: float
+    signal_rank: int
+    signal_percentile: float
+    sl_distance: float       # Mandatory absolute price distance to SL
+    risk_r: float            # Mandatory risk unit
+    model_version: str = "TLP_V1_CORE"
+    universe_version: str = "NIFTY_UNIVERSE_V1"
+
+
+@dataclass(frozen=True)
 class SignalEvent:
     strategy_id: str
     symbol: str
@@ -58,6 +77,8 @@ class SignalEvent:
     signal_type: SignalType
     confidence: float
     metadata: Dict[str, Any] = field(default_factory=dict)
+    context: Optional[TradeStructuralContext] = None
+
 
 
 @dataclass(frozen=True)

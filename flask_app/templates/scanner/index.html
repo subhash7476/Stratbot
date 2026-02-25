@@ -1,371 +1,491 @@
 {% extends "base.html" %}
-
-{% block title %}Live Scanner - opencode{% endblock %}
-
-{% block breadcrumb %}System / Scanner{% endblock %}
+{% block title %}Nifty PM Strategy{% endblock %}
+{% block breadcrumb %}Strategy / Nifty PM{% endblock %}
 
 {% block head %}
 <style>
-    .scanner-layout {
-        display: flex;
-        flex-direction: column;
-        height: calc(100vh - 220px);
-        min-height: 600px;
-        position: relative;
-    }
+    /* ── State badge variants ──────────────────────────────────────── */
+    .badge-pre     { background:#1e293b; color:#64748b; }
+    .badge-idle    { background:#1e3a5f; color:#93c5fd; }
+    .badge-ckpt    { background:#451a03; color:#fcd34d; }
+    .badge-notrade { background:#1e293b; color:#94a3b8; }
+    .badge-inpos   { background:#064e3b; color:#6ee7b7; }
+    .badge-done-w  { background:#064e3b; color:#6ee7b7; }
+    .badge-done-l  { background:#450a0a; color:#fca5a5; }
+    .badge-closed  { background:#0f172a; color:#475569; }
 
-    .panel-container {
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
+    /* ── Live position pulse ───────────────────────────────────────── */
+    .pulse-green { animation: pg 2s ease-in-out infinite; }
+    .pulse-red   { animation: pr 2s ease-in-out infinite; }
+    @keyframes pg { 0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.4)} 50%{box-shadow:0 0 0 10px rgba(16,185,129,0)} }
+    @keyframes pr { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}  50%{box-shadow:0 0 0 10px rgba(239,68,68,0)} }
 
-    .table-scroll {
-        flex: 1;
-        overflow-y: auto;
-        border-radius: 0 0 1rem 1rem;
-    }
+    /* ── Confidence bar ────────────────────────────────────────────── */
+    .conf-track  { background:rgba(71,85,105,.35); border-radius:9999px; height:6px; position:relative; }
+    .conf-fill   { border-radius:9999px; height:100%; transition:width .5s; }
+    .conf-marker { position:absolute; top:-3px; left:75%; width:2px; height:12px;
+                   background:#f59e0b; border-radius:1px; }
 
-    .symbol-drawer {
-        position: fixed;
-        bottom: 0;
-        left: 16rem;
-        right: 0;
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 30;
-    }
-
-    .symbol-drawer.open {
-        max-height: 380px;
-    }
-
-    /* Status badges */
-    .status-badge {
-        padding: 0.25rem 0.6rem;
-        border-radius: 9999px;
-        font-size: 0.65rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.025em;
-    }
-
-    .status-RUNNING {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
-    }
-
-    .status-TRIGGERED {
-        background: rgba(245, 158, 11, 0.2);
-        color: #f59e0b;
-        animation: pulse 1.5s infinite;
-    }
-
-    .status-WAITING {
-        background: rgba(107, 114, 128, 0.15);
-        color: #94a3b8;
-    }
-
-    .status-COOLDOWN {
-        background: rgba(139, 92, 246, 0.15);
-        color: #a78bfa;
-    }
-
-    .status-DISABLED {
-        background: rgba(239, 68, 68, 0.15);
-        color: #f87171;
-    }
-
-    /* Bias colors */
-    .bias-BULLISH {
-        color: #10b981;
-    }
-
-    .bias-BEARISH {
-        color: #ef4444;
-    }
-
-    .bias-NEUTRAL {
-        color: #64748b;
-    }
-
-    @keyframes pulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.6;
-        }
-    }
-
-    .table-row-clickable {
-        cursor: pointer;
-        transition: background 0.2s;
-    }
-
-    .table-row-clickable:hover {
-        background: rgba(255, 255, 255, 0.05);
-    }
-
-    .table-row-clickable.active {
-        background: rgba(59, 130, 246, 0.1);
-        border-left: 2px solid #3b82f6;
-    }
+    /* ── Misc ──────────────────────────────────────────────────────── */
+    .pnl-pos      { color:#34d399; }
+    .pnl-neg      { color:#f87171; }
+    .trow:hover   { background:rgba(255,255,255,.03); }
+    .refresh-spin { animation:spin 1s linear; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .dim-label    { font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; color:#64748b; margin-bottom:.25rem; }
+    .mono         { font-family:'Courier New',monospace; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-        <div>
-            <h1 class="text-3xl font-bold text-white tracking-tight">Live Intelligence Scanner</h1>
-            <p class="text-slate-400 mt-1">Real-time market context and strategy execution monitoring.</p>
-        </div>
-        <div class="flex items-center space-x-3 bg-slate-800/50 p-2 rounded-xl border border-slate-700">
-            <div class="flex items-center space-x-2 px-3 py-1 bg-emerald-500/10 rounded-lg">
-                <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-                <span class="text-[10px] font-bold text-emerald-500 uppercase">Live Feed</span>
-            </div>
-            <div class="text-[10px] text-slate-500 uppercase font-bold px-2">
-                Last Update: <span id="global-last-update">--:--:--</span>
-            </div>
-        </div>
-    </div>
 
-    <!-- Strategy Monitor (Full Height) -->
-    <div class="scanner-layout" id="scanner-container">
-        <div class="panel-container glass rounded-2xl h-full" id="strategy-panel">
-            <div class="p-4 border-b border-slate-700 bg-slate-800/30 flex items-center justify-between">
-                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">
-                    <i class="fas fa-radar mr-2"></i> Strategy Monitor
-                </h3>
-                <div class="flex items-center space-x-3">
-                    <select id="filter-strategy"
-                        class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500">
-                        <option value="">All Strategies</option>
-                        <option value="pixityAI_meta">PixityAI Meta</option>
-                        <option value="regime_v2">Regime V2</option>
-                        <option value="premium_tp_sl">Premium TP/SL</option>
-                    </select>
-                    <div class="flex space-x-2 border-l border-slate-700 pl-3">
-                        <span class="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded"
-                            id="scanner-active-count">0 Active</span>
-                        <span class="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded"
-                            id="scanner-triggered-count">0 Triggered</span>
-                    </div>
-                </div>
-            </div>
-            <div class="table-scroll">
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-900/50 text-slate-500 uppercase text-[10px] font-bold sticky top-0">
-                        <tr>
-                            <th class="px-4 py-3">Symbol</th>
-                            <th class="px-4 py-3">Strategy</th>
-                            <th class="px-4 py-3">TF</th>
-                            <th class="px-4 py-3">Bias</th>
-                            <th class="px-4 py-3 text-center">Conf</th>
-                            <th class="px-4 py-3">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="scanner-body" class="divide-y divide-slate-800">
-                        <!-- Polled data -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-white">Nifty PM Strategy</h1>
+        <p class="text-sm text-slate-400 mt-1">
+            V9 Scalper &nbsp;·&nbsp; Long-only &nbsp;·&nbsp; Entry 13:02 &nbsp;·&nbsp;
+            Stop 0.30% &nbsp;·&nbsp; Exit 14:45 &nbsp;·&nbsp; BullTrend ≥ 75% conf
+        </p>
+    </div>
+    <div class="flex items-center space-x-3">
+        <span class="text-xs text-slate-600" id="last-update"></span>
+        <button id="refresh-btn"
+                class="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            <i id="refresh-icon" class="fas fa-sync-alt text-xs"></i>
+            <span>Refresh</span>
+        </button>
     </div>
 </div>
+
+<!-- ── Summary Cards ──────────────────────────────────────────────────────── -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+
+    <div class="glass rounded-xl p-4">
+        <p class="dim-label">Total Trades</p>
+        <p class="text-2xl font-bold text-white" id="card-total">--</p>
+        <p class="text-xs text-slate-500 mt-1">
+            <span class="text-emerald-400" id="card-wins">--</span>W&nbsp;/&nbsp;<span class="text-red-400" id="card-losses">--</span>L
+        </p>
+    </div>
+
+    <div class="glass rounded-xl p-4">
+        <p class="dim-label">Win Rate</p>
+        <p class="text-2xl font-bold text-white" id="card-wr">--</p>
+        <p class="text-xs text-slate-500 mt-1">Exp: <span id="card-exp">--</span></p>
+    </div>
+
+    <div class="glass rounded-xl p-4">
+        <p class="dim-label">Avg Net P&amp;L</p>
+        <p class="text-2xl font-bold" id="card-avg">--</p>
+        <p class="text-xs text-slate-500 mt-1">Total: <span id="card-total-pnl">--</span></p>
+    </div>
+
+    <div class="glass rounded-xl p-4">
+        <p class="dim-label">Max Drawdown</p>
+        <p class="text-2xl font-bold text-red-400" id="card-dd">--</p>
+        <p class="text-xs text-slate-500 mt-1">Avg loss: <span id="card-avgloss">--</span></p>
+    </div>
+
 </div>
 
-<!-- Bottom Context Drawer -->
-<div id="symbol-drawer" class="symbol-drawer glass border-t border-slate-700 shadow-2xl">
-    <div class="p-6">
-        <div class="flex items-start justify-between mb-6">
-            <div class="flex items-center space-x-4">
-                <div id="drawer-icon"
-                    class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
-                    <i class="fas fa-chart-pie text-xl"></i>
+<!-- ── Middle Row: Session + Live price + Rules ────────────────────────────── -->
+<div class="grid grid-cols-1 xl:grid-cols-5 gap-6 mb-6">
+
+    <!-- TODAY'S SESSION (3/5) ────────────────────────────────────────────── -->
+    <div class="xl:col-span-3 glass rounded-xl overflow-hidden border border-slate-700/60">
+
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+            <h3 class="font-semibold text-white flex items-center gap-2">
+                <i class="fas fa-wave-square text-blue-400"></i>
+                Today's Session
+                <span class="text-xs text-slate-600 font-normal" id="session-date"></span>
+            </h3>
+            <span id="state-badge"
+                  class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider badge-closed">
+                —
+            </span>
+        </div>
+
+        <div class="p-5 space-y-5">
+
+            <!-- Note line (shown for non-trade states) -->
+            <p id="session-note"
+               class="text-sm text-slate-400 bg-slate-800/40 rounded-lg px-4 py-2 hidden"></p>
+
+            <!-- Day-type + confidence -->
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="dim-label">13:00 Prediction</p>
+                    <p class="text-xl font-bold" id="day-type-label">—</p>
                 </div>
                 <div>
-                    <div class="flex items-center space-x-2">
-                        <h2 id="drawer-title" class="text-2xl font-bold text-white tracking-tight">Select a symbol</h2>
-                        <span id="drawer-type"
-                            class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 uppercase font-bold">--</span>
+                    <div class="flex justify-between items-center mb-1.5">
+                        <p class="dim-label" style="margin-bottom:0">Confidence</p>
+                        <span class="text-sm font-bold mono" id="conf-pct">—</span>
                     </div>
-                    <p id="drawer-subtitle" class="text-xs text-slate-400">View real-time intelligence and execution
-                        state.</p>
-                </div>
-            </div>
-            <button onclick="closeDrawer()" class="text-slate-500 hover:text-white transition-colors">
-                <i class="fas fa-times text-lg"></i>
-            </button>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- Analytics Column -->
-            <div class="space-y-4">
-                <p
-                    class="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">
-                    Intelligence</p>
-                <div class="flex justify-between items-center">
-                    <span class="text-xs text-slate-400">Current Bias</span>
-                    <span id="ctx-bias" class="text-sm font-bold">--</span>
-                </div>
-                <div class="flex justify-between items-center">
-                    <span class="text-xs text-slate-400">Confidence</span>
-                    <span id="ctx-conf" class="text-sm font-mono text-white">--</span>
-                </div>
-                <div class="flex justify-between items-center">
-                    <span class="text-xs text-slate-400">Market Regime</span>
-                    <span id="ctx-regime" class="text-xs text-blue-400">--</span>
+                    <div class="conf-track">
+                        <div id="conf-fill" class="conf-fill bg-slate-600" style="width:0%"></div>
+                        <div class="conf-marker" title="75% threshold"></div>
+                    </div>
+                    <p class="text-xs text-slate-600 mt-1">threshold ≥ 75%</p>
                 </div>
             </div>
 
-            <!-- Active Strategies Column -->
-            <div class="md:col-span-2 space-y-4">
-                <p
-                    class="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">
-                    Active Strategies</p>
-                <div id="ctx-strategies" class="grid grid-cols-2 gap-2">
-                    <!-- Dynamic -->
+            <!-- Entry / Stop / Exit boxes -->
+            <div class="grid grid-cols-3 gap-3">
+                <div class="glass rounded-lg p-3">
+                    <p class="dim-label">Entry Price</p>
+                    <p class="text-lg font-bold text-white mono" id="entry-price">—</p>
+                    <p class="text-xs text-slate-600 mt-0.5" id="entry-time">—</p>
+                </div>
+                <div class="glass rounded-lg p-3">
+                    <p class="dim-label">Hard Stop</p>
+                    <p class="text-lg font-bold text-red-400 mono" id="stop-level">—</p>
+                    <p class="text-xs text-slate-600 mt-0.5">0.30% below entry</p>
+                </div>
+                <div class="glass rounded-lg p-3">
+                    <p class="dim-label" id="exit-label">Time Exit</p>
+                    <p class="text-lg font-bold mono" id="exit-value">14:45</p>
+                    <p class="text-xs text-slate-600 mt-0.5" id="exit-sub">IST</p>
                 </div>
             </div>
 
-            <!-- Recent Signal Column -->
-            <div class="space-y-4">
-                <p
-                    class="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">
-                    Recent Signals</p>
-                <div id="ctx-signals" class="space-y-2">
-                    <!-- Dynamic -->
+            <!-- P&L tile -->
+            <div id="pnl-tile"
+                 class="rounded-xl border border-slate-700 p-4 flex items-center justify-between">
+                <div>
+                    <p class="dim-label" id="pnl-label">P&amp;L</p>
+                    <p class="text-3xl font-bold mono" id="pnl-value">—</p>
                 </div>
+                <p class="text-sm text-slate-500 text-right" id="pnl-sub"></p>
             </div>
+
+            <!-- Model version footer -->
+            <p class="text-xs text-slate-700 text-right" id="model-ver"></p>
+
         </div>
     </div>
+
+    <!-- RIGHT col (2/5) ──────────────────────────────────────────────────── -->
+    <div class="xl:col-span-2 flex flex-col gap-4">
+
+        <!-- Live Nifty price -->
+        <div class="glass rounded-xl p-5 border border-slate-700/60">
+            <div class="flex items-center justify-between mb-3">
+                <p class="dim-label" style="margin-bottom:0">Nifty 50 · Last Price</p>
+                <span class="text-xs text-slate-600 mono" id="bar-time">—</span>
+            </div>
+            <p class="text-4xl font-bold mono text-white" id="live-price">—</p>
+            <div class="flex items-center space-x-4 mt-3 text-xs text-slate-500">
+                <span>H:&nbsp;<span class="text-slate-300 mono" id="bar-high">—</span></span>
+                <span>L:&nbsp;<span class="text-slate-300 mono" id="bar-low">—</span></span>
+            </div>
+        </div>
+
+        <!-- Strategy rules quick-ref -->
+        <div class="glass rounded-xl p-5 border border-slate-700/60 flex-1">
+            <p class="dim-label mb-3">Strategy Rules</p>
+            <div class="space-y-2.5 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Signal</span>
+                    <span class="text-slate-200">BullTrend @ 13:00</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Min Confidence</span>
+                    <span class="text-emerald-400 font-bold">≥ 75%</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Entry</span>
+                    <span class="text-slate-200">13:02 open (long)</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Hard Stop</span>
+                    <span class="text-red-400">0.30% below entry</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Target</span>
+                    <span class="text-slate-400 italic">None — hold to exit</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Time Exit</span>
+                    <span class="text-blue-400">14:45 IST</span>
+                </div>
+                <div class="flex justify-between border-t border-slate-800 pt-2.5">
+                    <span class="text-slate-400">Round-trip Cost</span>
+                    <span class="text-slate-300">0.04% (futures)</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Data feed</span>
+                    <span class="text-slate-300 text-xs mono">run_v9_paper.py</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
 </div>
+
+<!-- ── Trade History ──────────────────────────────────────────────────────── -->
+<div class="glass rounded-xl overflow-hidden">
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+        <h3 class="font-semibold text-white">
+            <i class="fas fa-history mr-2 text-purple-400"></i>Trade History
+        </h3>
+        <label class="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">
+            <input type="checkbox" id="show-all" class="rounded border-slate-600">
+            <span>Show all dates</span>
+        </label>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-[#1e293b] text-slate-400 text-xs uppercase">
+                <tr>
+                    <th class="px-4 py-3 text-left">Date</th>
+                    <th class="px-4 py-3 text-right">Entry</th>
+                    <th class="px-4 py-3 text-right">Stop</th>
+                    <th class="px-4 py-3 text-right">Exit</th>
+                    <th class="px-4 py-3 text-right">Entry T</th>
+                    <th class="px-4 py-3 text-right">Exit T</th>
+                    <th class="px-4 py-3 text-left">Reason</th>
+                    <th class="px-4 py-3 text-right">Gross%</th>
+                    <th class="px-4 py-3 text-right">Net%</th>
+                    <th class="px-4 py-3 text-right">Conf</th>
+                </tr>
+            </thead>
+            <tbody id="trade-table">
+                <tr>
+                    <td colspan="10"
+                        class="px-4 py-8 text-center text-slate-500">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>Loading…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-    let activeSymbol = null;
+// ── State → visual config ─────────────────────────────────────────────────────
+const STATE_CFG = {
+    PRE_MARKET:     { badge: 'badge-pre',     label: 'Pre-Market' },
+    IDLE:           { badge: 'badge-idle',    label: 'AM Session' },
+    CHECKPOINT:     { badge: 'badge-ckpt',    label: 'Checkpoint' },
+    NO_TRADE:       { badge: 'badge-notrade', label: 'No Signal'  },
+    AWAITING_ENTRY: { badge: 'badge-ckpt',    label: 'Awaiting'   },
+    IN_POSITION:    { badge: 'badge-inpos',   label: 'In Position'},
+    DONE:           { badge: null,            label: 'Done'       },
+    CLOSED:         { badge: 'badge-closed',  label: 'Closed'     },
+};
 
-    // Polling Interval
-    const SCANNER_INTERVAL = 2000;
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadAll();
+    setInterval(refreshSession, 10_000);   // session + live price every 10 s
+    setInterval(loadAll,        60_000);   // full reload every 60 s
 
-    async function pollScanner() {
-        try {
-            const strategyFilter = document.getElementById('filter-strategy').value;
-            const res = await fetch('/scanner/api/scanner-state');
-            const result = await res.json();
-            if (result.success) {
-                let filteredData = result.data;
-                if (strategyFilter) {
-                    filteredData = result.data.filter(r => r.strategy_id === strategyFilter);
-                }
+    document.getElementById('refresh-btn').addEventListener('click', loadAll);
+    document.getElementById('show-all').addEventListener('change', loadTrades);
+});
 
-                renderScanner(filteredData);
+function loadAll() {
+    spin(true);
+    Promise.all([loadSummary(), refreshSession(), loadTrades()])
+        .finally(() => spin(false));
+}
+function spin(on) {
+    document.getElementById('refresh-icon').classList.toggle('refresh-spin', on);
+}
 
-                const triggered = filteredData.filter(r => r.status === 'TRIGGERED').length;
-                document.getElementById('scanner-active-count').textContent = `${filteredData.length} Total`;
-                document.getElementById('scanner-triggered-count').textContent = `${triggered} Triggered`;
-                updateGlobalTime();
-            }
-        } catch (e) { console.error("Scanner poll error:", e); }
+// ── Summary cards ─────────────────────────────────────────────────────────────
+function loadSummary() {
+    return fetch('/scanner/api/summary').then(r => r.json()).then(d => {
+        if (!d.success) return;
+        const s = d.summary;
+        setText('card-total',     s.total_trades ?? 0);
+        setText('card-wins',      s.wins    ?? '--');
+        setText('card-losses',    s.losses  ?? '--');
+        setText('card-wr',        s.win_rate    != null ? s.win_rate + '%' : '--');
+        setText('card-exp',       s.expectancy  != null ? fmtPct(s.expectancy) : '--');
+
+        const avgEl = document.getElementById('card-avg');
+        if (s.avg_pnl_net_pct != null) {
+            avgEl.textContent = fmtPct(s.avg_pnl_net_pct);
+            avgEl.className   = 'text-2xl font-bold ' + pnlCls(s.avg_pnl_net_pct);
+        }
+        setText('card-total-pnl', s.total_pnl_net_pct != null ? fmtPct(s.total_pnl_net_pct) : '--');
+        setText('card-dd',        s.max_dd_pct   != null ? '-' + s.max_dd_pct.toFixed(3) + '%' : '--');
+        setText('card-avgloss',   s.avg_loss_pct != null ? fmtPct(s.avg_loss_pct) : '--');
+    }).catch(() => {});
+}
+
+// ── Session panel ─────────────────────────────────────────────────────────────
+function refreshSession() {
+    return fetch('/scanner/api/session').then(r => r.json()).then(d => {
+        if (!d.success) return;
+        renderSession(d.session);
+        setText('last-update', 'Updated ' +
+            new Date().toLocaleTimeString('en-IN',
+                { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }).catch(() => {});
+}
+
+function renderSession(s) {
+    const state = s.state || 'CLOSED';
+    const cfg   = STATE_CFG[state] || STATE_CFG.CLOSED;
+
+    // State badge
+    const badge = document.getElementById('state-badge');
+    let bc = cfg.badge;
+    if (state === 'DONE') bc = (s.pnl_net_pct == null || s.pnl_net_pct >= 0) ? 'badge-done-w' : 'badge-done-l';
+    badge.className = 'px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ' + (bc || 'badge-closed');
+    badge.textContent = cfg.label;
+
+    setText('session-date', s.session_date || '');
+
+    // Note
+    const noteEl = document.getElementById('session-note');
+    if (s.note) { noteEl.textContent = s.note; noteEl.classList.remove('hidden'); }
+    else          noteEl.classList.add('hidden');
+
+    // Day type
+    const dtEl = document.getElementById('day-type-label');
+    const dt   = s.day_type || '—';
+    dtEl.textContent = dt;
+    dtEl.className = 'text-xl font-bold ' + (
+        dt === 'BullTrend' ? 'text-emerald-400' :
+        dt === 'BearTrend' ? 'text-red-400'     :
+        dt === 'Choppy'    ? 'text-amber-400'   : 'text-slate-500');
+
+    // Confidence bar
+    const conf    = s.confidence;
+    const confPct = conf != null ? Math.round(conf * 100) : 0;
+    setText('conf-pct', conf != null ? confPct + '%' : '—');
+    const fill = document.getElementById('conf-fill');
+    fill.style.width  = confPct + '%';
+    fill.className    = 'conf-fill ' + (confPct >= 80 ? 'bg-emerald-500' : confPct >= 75 ? 'bg-amber-500' : 'bg-slate-600');
+
+    setText('model-ver', s.model_version ? 'Model: ' + s.model_version : '');
+
+    // Entry / Stop / Exit
+    setText('entry-price', s.entry_price != null ? s.entry_price.toFixed(2) : '—');
+    setText('entry-time',  s.entry_time  || '—');
+    setText('stop-level',  s.stop_level  != null ? s.stop_level.toFixed(2)  : '—');
+
+    const exitLbl = document.getElementById('exit-label');
+    const exitVal = document.getElementById('exit-value');
+    const exitSub = document.getElementById('exit-sub');
+    if (s.exit_price != null) {
+        exitLbl.textContent = 'Exit Price';
+        exitVal.textContent = s.exit_price.toFixed(2);
+        exitVal.className   = 'text-lg font-bold mono text-slate-200';
+        const rmap = { stop_hit: 'Stop Hit', time_exit: 'Time Exit' };
+        exitSub.textContent = (s.exit_time || '') + (s.exit_reason ? ' · ' + (rmap[s.exit_reason] || s.exit_reason) : '');
+    } else {
+        exitLbl.textContent = 'Time Exit';
+        exitVal.textContent = '14:45';
+        exitVal.className   = 'text-lg font-bold mono text-blue-400';
+        exitSub.textContent = 'IST';
     }
 
-    function renderScanner(data) {
-        const body = document.getElementById('scanner-body');
-        body.innerHTML = data.map(row => {
-            const isActive = activeSymbol === row.symbol ? 'active' : '';
-            return `
-                <tr class="table-row-clickable ${isActive}" onclick="openDrawer('${row.symbol}')">
-                    <td class="px-4 py-3 font-bold text-white">${row.trading_symbol || row.symbol}</td>
-                    <td class="px-4 py-3 text-slate-400 font-medium">${row.strategy_id}</td>
-                    <td class="px-4 py-3 text-slate-500 font-mono">${row.timeframe}</td>
-                    <td class="px-4 py-3 font-bold bias-${row.current_bias}">${row.current_bias}</td>
-                    <td class="px-4 py-3 text-center">
-                        <div class="w-full bg-slate-800 rounded-full h-1.5 max-w-[60px] mx-auto">
-                            <div class="bg-blue-500 h-1.5 rounded-full" style="width: ${row.confidence * 100}%"></div>
-                        </div>
-                    </td>
-                    <td class="px-4 py-3">
-                        <span class="status-badge status-${row.status}">${row.status}</span>
-                    </td>
-                </tr>
-            `;
-        }).join('');
+    // P&L tile
+    const tile  = document.getElementById('pnl-tile');
+    const pnlV  = document.getElementById('pnl-value');
+    const pnlSb = document.getElementById('pnl-sub');
+    const pnlLb = document.getElementById('pnl-label');
+
+    if (state === 'IN_POSITION' && s.unreal_pct != null) {
+        pnlLb.textContent = 'Unrealised P\u0026L';
+        pnlV.textContent  = fmtPct(s.unreal_pct);
+        pnlV.className    = 'text-3xl font-bold mono ' + pnlCls(s.unreal_pct);
+        pnlSb.textContent = (s.unreal_pts >= 0 ? '+' : '') + s.unreal_pts?.toFixed(2) +
+                            ' pts  ·  Stop ' + (s.stop_level?.toFixed(2) ?? '—');
+        tile.className = 'rounded-xl border p-4 flex items-center justify-between ' +
+            (s.unreal_pct >= 0 ? 'border-emerald-800 bg-emerald-950/30 pulse-green'
+                               : 'border-red-800 bg-red-950/30 pulse-red');
+    } else if (state === 'DONE' && s.pnl_net_pct != null) {
+        pnlLb.textContent = 'Realised P\u0026L (net)';
+        pnlV.textContent  = fmtPct(s.pnl_net_pct);
+        pnlV.className    = 'text-3xl font-bold mono ' + pnlCls(s.pnl_net_pct);
+        pnlSb.textContent = s.pnl_gross_pct != null
+            ? 'Gross ' + fmtPct(s.pnl_gross_pct) + '  ·  after 0.04% cost'
+            : '';
+        tile.className = 'rounded-xl border p-4 flex items-center justify-between ' +
+            (s.pnl_net_pct >= 0 ? 'border-emerald-800 bg-emerald-950/20'
+                                : 'border-red-800 bg-red-950/20');
+    } else {
+        pnlLb.textContent = 'P\u0026L';
+        pnlV.textContent  = '—';
+        pnlV.className    = 'text-3xl font-bold mono text-slate-600';
+        pnlSb.textContent = '';
+        tile.className = 'rounded-xl border border-slate-800 p-4 flex items-center justify-between';
     }
 
-    async function openDrawer(symbol) {
-        activeSymbol = symbol;
-        const drawer = document.getElementById('symbol-drawer');
-        drawer.classList.add('open');
+    // Live Nifty price
+    if (s.last_price != null)
+        setText('live-price', s.last_price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    if (s.last_ts)
+        setText('bar-time', s.last_ts.replace('T', ' ').slice(11, 16) + ' IST');
+    if (s.last_high != null) setText('bar-high', s.last_high.toFixed(2));
+    if (s.last_low  != null) setText('bar-low',  s.last_low.toFixed(2));
+}
 
-        // Highlight active row in both tables
-        document.querySelectorAll('.table-row-clickable').forEach(el => el.classList.remove('active'));
+// ── Trade history ─────────────────────────────────────────────────────────────
+function loadTrades() {
+    const all = document.getElementById('show-all').checked;
+    return fetch('/scanner/api/trades' + (all ? '?all=true' : ''))
+        .then(r => r.json()).then(d => {
+            if (!d.success) return;
+            renderTrades(d.trades || []);
+        }).catch(() => {});
+}
 
-        try {
-            const res = await fetch(`/scanner/api/symbol-context/${symbol}`);
-            const result = await res.json();
-            if (result.success) {
-                const d = result.data;
-                document.getElementById('drawer-title').textContent = d.trading_symbol;
-                document.getElementById('drawer-type').textContent = d.market_type;
-
-                // Bias & Conf
-                const biasEl = document.getElementById('ctx-bias');
-                biasEl.textContent = d.latest_bias || 'NEUTRAL';
-                biasEl.className = `text-sm font-bold bias-${d.latest_bias || 'NEUTRAL'}`;
-                document.getElementById('ctx-conf').textContent = d.latest_confidence ? `${(d.latest_confidence * 100).toFixed(0)}%` : '--';
-                document.getElementById('ctx-regime').textContent = d.regime || 'UNCERTAIN';
-
-                // Strategies
-                const stratContainer = document.getElementById('ctx-strategies');
-                stratContainer.innerHTML = d.active_strategies.map(s => `
-                    <div class="bg-slate-800/50 p-2 rounded-lg border border-slate-700">
-                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">${s.id}</div>
-                        <div class="flex items-center justify-between">
-                            <span class="status-badge status-${s.status} scale-90 origin-left">${s.status}</span>
-                            <span class="text-[10px] font-bold bias-${s.bias}">${s.bias}</span>
-                        </div>
-                    </div>
-                `).join('') || '<p class="text-slate-600 text-[10px]">No active strategies</p>';
-
-                // Recent Signals
-                const sigContainer = document.getElementById('ctx-signals');
-                sigContainer.innerHTML = d.recent_signals.map(s => `
-                    <div class="flex items-center justify-between text-[10px]">
-                        <span class="font-bold bias-${s.type}">${s.type}</span>
-                        <span class="text-slate-500">${new Date(s.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span class="px-1.5 py-0.5 rounded-sm bg-slate-800 text-slate-400">${s.status}</span>
-                    </div>
-                `).join('') || '<p class="text-slate-600 text-[10px]">No recent signals</p>';
-            }
-        } catch (e) { console.error("Drawer fetch error:", e); }
+function renderTrades(trades) {
+    const tbody  = document.getElementById('trade-table');
+    const closed = trades.filter(t => t.exit_time);
+    if (!closed.length) {
+        tbody.innerHTML = `<tr><td colspan="10" class="px-4 py-8 text-center text-slate-500">
+            No trades yet. Run <code class="text-slate-400 bg-slate-800 px-1 rounded">scripts/run_v9_paper.py</code> to start trading.
+        </td></tr>`;
+        return;
     }
+    const rmap = {
+        stop_hit:  '<span class="text-red-400">Stop Hit</span>',
+        time_exit: '<span class="text-blue-400">Time Exit</span>',
+    };
+    tbody.innerHTML = closed.map(t => {
+        const net   = t.pnl_net_pct   != null ? parseFloat(t.pnl_net_pct)   : null;
+        const gross = t.pnl_gross_pct != null ? parseFloat(t.pnl_gross_pct) : null;
+        const conf  = parseFloat(t.confidence);
+        const confCls  = conf >= 0.85 ? 'text-emerald-400' : conf >= 0.75 ? 'text-amber-400' : 'text-slate-500';
+        const netCls   = net   != null ? (net   >= 0 ? 'pnl-pos font-semibold' : 'pnl-neg font-semibold') : 'text-slate-500';
+        const grossCls = gross != null ? (gross >= 0 ? 'text-emerald-400/70'   : 'text-red-400/70')       : 'text-slate-500';
+        return `
+        <tr class="border-b border-slate-800 trow">
+            <td class="px-4 py-2 text-xs text-slate-400">${t.session_date || '—'}</td>
+            <td class="px-4 py-2 text-right mono text-slate-200">${t.entry_price != null ? parseFloat(t.entry_price).toFixed(2) : '—'}</td>
+            <td class="px-4 py-2 text-right mono text-red-400/70">${t.stop_level  != null ? parseFloat(t.stop_level).toFixed(2)  : '—'}</td>
+            <td class="px-4 py-2 text-right mono text-slate-200">${t.exit_price  != null ? parseFloat(t.exit_price).toFixed(2)  : '—'}</td>
+            <td class="px-4 py-2 text-right text-xs text-slate-500">${t.entry_time || '—'}</td>
+            <td class="px-4 py-2 text-right text-xs text-slate-500">${t.exit_time  || '—'}</td>
+            <td class="px-4 py-2 text-xs">${rmap[t.exit_reason] ?? `<span class="text-slate-400">${t.exit_reason || '—'}</span>`}</td>
+            <td class="px-4 py-2 text-right text-xs ${grossCls}">${gross != null ? fmtPct(gross) : '—'}</td>
+            <td class="px-4 py-2 text-right text-xs ${netCls}">${net   != null ? fmtPct(net)   : '—'}</td>
+            <td class="px-4 py-2 text-right text-xs ${confCls}">${!isNaN(conf) ? (conf * 100).toFixed(0) + '%' : '—'}</td>
+        </tr>`;
+    }).join('');
+}
 
-    function closeDrawer() {
-        activeSymbol = null;
-        document.getElementById('symbol-drawer').classList.remove('open');
-        document.querySelectorAll('.table-row-clickable').forEach(el => el.classList.remove('active'));
-    }
-
-    function updateGlobalTime() {
-        document.getElementById('global-last-update').textContent = new Date().toLocaleTimeString();
-    }
-
-    // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-        pollScanner();
-        setInterval(pollScanner, SCANNER_INTERVAL);
-
-        // Strategy filter listener
-        document.getElementById('filter-strategy').addEventListener('change', pollScanner);
-    });
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val != null ? val : '—';
+}
+function fmtPct(v) {
+    return (v >= 0 ? '+' : '') + v.toFixed(4) + '%';
+}
+function pnlCls(v) { return v >= 0 ? 'pnl-pos' : 'pnl-neg'; }
 </script>
 {% endblock %}

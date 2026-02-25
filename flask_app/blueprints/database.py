@@ -16,7 +16,7 @@ def get_db_manager():
 
 def get_db_for_table(table_name: str):
     """Routing logic to find which DB a table belongs to."""
-    trading_tables = ['orders', 'trades', 'positions']
+    trading_tables = ['orders', 'trades', 'positions', 'stock_paper_trades', 'stock_paper_signals']
     signals_tables = ['confluence_insights', 'regime_insights', 'signals']
     config_tables = ['users', 'roles', 'user_watchlist', 'instrument_meta', 'websocket_status', 'runner_state', 'fo_stocks']
     market_tables = ['ticks', 'candles']
@@ -301,6 +301,49 @@ def request_historical_fetch():
         threading.Thread(target=run_fetch, daemon=True).start()
         return jsonify({"success": True, "message": "Historical data fetch initiated"})
     except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@database_bp.route('/api/nifty50-symbols')
+@login_required
+@role_required('admin')
+def get_nifty50_symbols():
+    """Reads Nifty 50 CSV and resolves to instrument keys."""
+    try:
+        csv_path = Path("data/nifty-50-stock-list.csv")
+        if not csv_path.exists():
+            return jsonify({"success": False, "message": "Nifty 50 CSV not found"}), 404
+        
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        symbols = df['Symbol'].tolist()
+        
+        db = get_db_manager()
+        resolved = []
+        
+        with db.config_reader() as conn:
+            # We use chunks to avoid SQLite parameter limit (999 usually)
+            chunk_size = 500
+            for i in range(0, len(symbols), chunk_size):
+                chunk = symbols[i:i+chunk_size]
+                placeholders = ', '.join(['?'] * len(chunk))
+                query = f"""
+                    SELECT instrument_key, trading_symbol 
+                    FROM instrument_meta 
+                    WHERE trading_symbol IN ({placeholders}) 
+                    AND exchange = 'NSE'
+                    AND market_type = 'NSE_EQ'
+                """
+                rows = conn.execute(query, chunk).fetchall()
+                for r in rows:
+                    resolved.append({
+                        "instrument_key": r[0],
+                        "trading_symbol": r[1]
+                    })
+                
+        return jsonify({"success": True, "data": resolved})
+    except Exception as e:
+        logger.error(f"Error resolving Nifty 50 symbols: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 

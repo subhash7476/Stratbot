@@ -184,6 +184,9 @@ def create_app(test_config=None):
     from flask_app.blueprints.ops import bp as ops_bp
     app.register_blueprint(ops_bp, url_prefix='/ops')
 
+    from flask_app.blueprints.paper_trading import paper_trading_bp
+    app.register_blueprint(paper_trading_bp)
+
     # Global context processor for templates
     @app.context_processor
     def inject_user_context():

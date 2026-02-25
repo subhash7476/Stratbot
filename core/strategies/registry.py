@@ -11,6 +11,7 @@ from core.strategies.daily_regime_strategy_v2 import DailyRegimeStrategyV2
 from core.strategies.regime_adaptive import RegimeAdaptiveStrategy
 from core.strategies.premium_tp_sl import PremiumTpSlStrategy
 from core.strategies.pixityAIMetaStrategy import PixityAIMetaStrategy
+from core.strategies.v9_pm_scalper import V9PmScalperStrategy
 
 # symbol -> Strategy Class
 STRATEGY_MAP: Dict[str, Type[BaseStrategy]] = {
@@ -19,7 +20,8 @@ STRATEGY_MAP: Dict[str, Type[BaseStrategy]] = {
     "regime_v2": DailyRegimeStrategyV2,
     "regime_adaptive": RegimeAdaptiveStrategy,
     "premium_tp_sl": PremiumTpSlStrategy,
-    "pixityAI_meta": PixityAIMetaStrategy
+    "pixityAI_meta": PixityAIMetaStrategy,
+    "v9_pm_scalper": V9PmScalperStrategy,   # V9 BullTrend PM, 13:02 entry, 14:45 exit
 }
 
 def create_strategy(strategy_id: str, instance_id: str, config: Optional[Dict] = None) -> Optional[BaseStrategy]:

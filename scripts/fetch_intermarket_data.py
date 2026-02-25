@@ -61,7 +61,7 @@ def get_date_chunks(from_date: str, to_date: str, unit: str) -> list:
     to_dt = datetime.strptime(to_date, '%Y-%m-%d')
     chunks = []
     if unit == 'minutes':
-        max_days = 29
+        max_days = 10  # 29-day chunks cause sporadic 400s from Upstox for index symbols
     elif unit == 'hours':
         max_days = 89
     else:

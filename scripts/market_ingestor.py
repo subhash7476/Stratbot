@@ -168,57 +168,66 @@ class MarketIngestorDaemon:
         except Exception as e:
             logger.error(f"Failed to update websocket_status: {e}")
 
+    def _try_connect(self, token: str):
+        """Start recovery + WebSocket with the given token."""
+        upstox_client = UpstoxClient(access_token=token)
+        try:
+            recovery = RecoveryManager(upstox_client, db_manager=self.db_manager)
+            logger.info("Running initial recovery/backfill...")
+            recovery.run_recovery(self.symbols)
+        except Exception as e:
+            logger.warning(f"Recovery failed (non-blocking): {e}")
+        self.ingestor = WebSocketIngestor(self.symbols, access_token=token, db_manager=self.db_manager)
+        self.ingestor.start()
+        self._update_websocket_status("OPEN")
+        logger.info("WebSocket ingestor started successfully.")
+
     def run(self, mock: bool = False):
         # Only acquire file lock if we are NOT running unified (PID check)
         # But for simplicity, we let the unified runner manage it.
-        # self._acquire_lock() 
-        
+        # self._acquire_lock()
+
         logger.info("Market Ingestor Daemon started.")
-        
+
         if not mock:
-            # 1. Recovery on startup
+            # 1. Re-read credentials fresh from disk (singleton may be stale)
+            credentials._load()
             token = credentials.get("access_token")
             if not token or credentials.needs_daily_refresh:
-                logger.error("Fresh Upstox token required. Please login via Dashboard.")
-                self._update_heartbeat("ERROR_TOKEN_EXPIRED")
+                logger.warning(
+                    "Fresh Upstox token required. Please login via Dashboard. "
+                    "Ingestor will auto-connect once a valid token is saved."
+                )
+                self._update_heartbeat("WAITING_FOR_TOKEN")
                 self._update_websocket_status("DISCONNECTED")
-                # return
+                # Do NOT return -- fall through so the main loop can do a late-connect
+                # once the user logs in via the Dashboard.
             else:
-                upstox_client = UpstoxClient(access_token=token)
-
-                try:
-                    recovery = RecoveryManager(upstox_client, db_manager=self.db_manager)
-                    logger.info("Running initial recovery/backfill...")
-                    recovery.run_recovery(self.symbols)
-                except Exception as e:
-                    logger.warning(f"Recovery failed (non-blocking): {e}")
-
-                # 2. Start Ingestor
-                self.ingestor = WebSocketIngestor(self.symbols, access_token=token, db_manager=self.db_manager)
-                self.ingestor.start()
-                self._update_websocket_status("OPEN")
+                self._try_connect(token)
         else:
             logger.info("Running in MOCK mode (No Upstox connection)")
-        
+
         # 3. Main Loop
         logger.info("Entering main aggregation loop (1.5s frequency).")
-        
+
         # Immediate startup heartbeat
         self.telemetry.publish_health({
             "status": "STARTING",
             "timestamp": datetime.now().isoformat()
         })
-        
-        last_telemetry_ts = 0
+
+        last_telemetry_ts   = 0
+        last_token_check_ts = 0   # throttle: re-check for fresh token every 30s
+
         while self._is_running:
             now = MarketHours.get_ist_now()
-            
+
             # Periodic Telemetry (10s)
             if time.time() - last_telemetry_ts > 10:
                 try:
                     status = "RUNNING" if self.ingestor and self.ingestor.is_running else "IDLE"
                     if mock: status = "MOCK_RUNNING"
-                    
+
                     self.telemetry.publish_health({
                         "status": status,
                         "symbols_count": len(self.symbols),
@@ -226,20 +235,34 @@ class MarketIngestorDaemon:
                     })
                     self.telemetry.publish_log("INFO", f"Heartbeat from market_data_node: {status}")
                 except:
-                    pass 
+                    pass
                 last_telemetry_ts = time.time()
 
             if MarketHours.is_market_open(now):
+                # Late-connect: if WebSocket never started (token was missing at boot),
+                # re-check credentials every 30 s and connect when a fresh token appears.
+                if not mock and (self.ingestor is None) and (time.time() - last_token_check_ts > 30):
+                    last_token_check_ts = time.time()
+                    credentials._load()  # re-read from disk
+                    token = credentials.get("access_token")
+                    if token and not credentials.needs_daily_refresh:
+                        logger.info("Fresh token detected -- performing late-connect.")
+                        try:
+                            self._try_connect(token)
+                        except Exception as e:
+                            logger.error(f"Late-connect failed: {e}")
+
                 self.aggregator.aggregate_outstanding_ticks(self.symbols)
-                self._update_heartbeat("CONNECTED")
-                self._update_websocket_status("OPEN")
-                time.sleep(1.5) 
+                ws_live = self.ingestor is not None and self.ingestor.is_running
+                self._update_heartbeat("CONNECTED" if ws_live else "WAITING_FOR_TOKEN")
+                self._update_websocket_status("OPEN" if ws_live else "DISCONNECTED")
+                time.sleep(1.5)
             else:
                 self.aggregator.aggregate_outstanding_ticks(self.symbols)
                 logger.info("Market closed. Sleeping.")
                 self._update_heartbeat("IDLE (Market Closed)")
                 self._update_websocket_status("CLOSED")
-                time.sleep(60) 
+                time.sleep(60)
 
 if __name__ == "__main__":
     daemon = MarketIngestorDaemon()
