@@ -24,6 +24,15 @@ INDEX_SHORT_NAMES = {
     "NSE_INDEX|Nifty Bank": "BANKNIFTY",
 }
 
+# Weekly expiry weekday per index (SEBI post-2024 schedule)
+# Python weekday: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday
+INDEX_EXPIRY_WEEKDAY = {
+    "NSE_INDEX|Nifty 50": 1,      # Tuesday
+    "NSE_INDEX|Nifty Bank": 2,    # Wednesday
+    "NSE_INDEX|FINNIFTY": 1,      # Tuesday
+    "NSE_INDEX|MIDCPNIFTY": 0,    # Monday
+}
+
 
 class OptionsContractSelector:
     """
@@ -72,7 +81,8 @@ class OptionsContractSelector:
         lot_size = policy.get("lot_size_override") or INDEX_LOT_SIZES.get(underlying, 50)
 
         from_date = timestamp.date() if isinstance(timestamp, datetime) else timestamp
-        expiry = self._nearest_expiry(from_date, expiry_days_min)
+        expiry_weekday = INDEX_EXPIRY_WEEKDAY.get(underlying, 1)  # default Tuesday
+        expiry = self._nearest_expiry(from_date, expiry_days_min, expiry_weekday)
         strike = self._round_to_strike(underlying_price, step)
         option_type = OptionType.CALL if direction == SignalType.BUY else OptionType.PUT
 
@@ -92,11 +102,10 @@ class OptionsContractSelector:
             multiplier=1.0,
         )
 
-    def _nearest_expiry(self, from_date: date, min_days: int) -> date:
-        """Nearest Thursday that is at least min_days away from from_date."""
+    def _nearest_expiry(self, from_date: date, min_days: int, expiry_weekday: int = 1) -> date:
+        """Nearest expiry weekday that is at least min_days away from from_date."""
         target = from_date + timedelta(days=min_days)
-        # Thursday = weekday 3; (3 - weekday) % 7 gives days until next Thursday
-        days_ahead = (3 - target.weekday()) % 7
+        days_ahead = (expiry_weekday - target.weekday()) % 7
         return target + timedelta(days=days_ahead)
 
     def _round_to_strike(self, price: float, step: int) -> int:

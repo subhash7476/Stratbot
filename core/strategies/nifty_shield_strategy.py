@@ -58,8 +58,14 @@ class NiftyShieldStrategy:
                 self._mkt = UpstoxMarketData()
             except Exception:
                 self._mkt = None
+            try:
+                from core.instruments.instrument_db import InstrumentMaster
+                self._instrument_db = InstrumentMaster()
+            except Exception:
+                self._instrument_db = None
         else:
             self._mkt = None
+            self._instrument_db = None
 
         # ── Session state ──────────────────────────────────────────
         self._session_date: Optional[date] = None
@@ -411,10 +417,16 @@ class NiftyShieldStrategy:
                       iv: float, opt_type: str) -> float:
         """Black-76 price in backtest; live LTP in paper mode (falls back to B76)."""
         if not self.backtest_mode and self._mkt is not None:
-            sym = self._ce_option.symbol if opt_type == 'CE' else self._pe_option.symbol
-            ltp = self._mkt.fetch_ltp(f"NSE_FO|{sym}")
-            if ltp and ltp > 0:
-                return ltp
+            opt = self._ce_option if opt_type == 'CE' else self._pe_option
+            if opt is not None:
+                # Prefer numeric instrument key from master (more reliable for LTP)
+                ikey = None
+                if self._instrument_db is not None and self._instrument_db.is_loaded():
+                    ikey = self._instrument_db.resolve(opt.symbol)
+                instrument_key = ikey if ikey else f"NSE_FO|{opt.symbol}"
+                ltp = self._mkt.fetch_ltp(instrument_key)
+                if ltp and ltp > 0:
+                    return ltp
         return Black76Engine.calculate_price(F, K, T, r, iv, opt_type)
 
     def _iv(self, ts_ist: datetime) -> float:

@@ -149,16 +149,32 @@ def run_ingestor(db_manager: DatabaseManager, stop_event: threading.Event):
         if daemon:
             daemon.stop()
 
+def refresh_instrument_master():
+    """Download latest NSE_FO instrument master from Upstox (best-effort, non-blocking)."""
+    logger = logging.getLogger("instrument_master")
+    try:
+        from scripts.fetch_instrument_master import refresh
+        n = refresh()
+        logger.info(f"[InstrumentMaster] Refreshed: {n:,} NSE_FO instruments")
+        print(f"Instrument master refreshed: {n:,} NSE_FO instruments.")
+    except Exception as e:
+        logger.warning(f"[InstrumentMaster] Refresh failed (non-fatal): {e}")
+        print(f"WARNING: Instrument master refresh failed: {e}")
+
+
 if __name__ == '__main__':
     print("="*60)
     print("UNIFIED TRADING BOT SERVER (Windows Mode)")
     print("="*60)
-    
+
     # 1. Set Unified Mode for DuckDB robustness
     os.environ['UNIFIED_MODE'] = '1'
-    
+
     # 2. Initialize Isolated Databases
     init_all()
+
+    # 2b. Refresh NSE_FO instrument master (daily, after OAuth)
+    refresh_instrument_master()
     
     # 2. Initialize Central Database Manager
     data_root = ROOT / "data"
