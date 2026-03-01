@@ -407,7 +407,67 @@ CREATE TABLE IF NOT EXISTS v9_paper_trades (
     pnl_gross_pct    REAL,
     pnl_net_pct      REAL,
     model_version    TEXT,
+    option_symbol    TEXT,          -- e.g. NIFTY06MAR2622500CE
+    entry_premium    REAL,          -- Upstox LTP at entry
+    exit_premium     REAL,          -- Upstox LTP at exit
+    lot_size         INTEGER DEFAULT 75,
+    pnl_rs           REAL,          -- net PnL in Rupees
     created_at       TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# ─────────────────────────────────────────────────────────────
+# NIFTY SHIELD — Weekly Options Selling (SQLite — trading.db)
+# ─────────────────────────────────────────────────────────────
+
+NS_PAPER_SIGNALS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ns_paper_signals (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date    TEXT NOT NULL,
+    underlying      TEXT NOT NULL,
+    predicted_state TEXT NOT NULL,
+    confidence      REAL NOT NULL,
+    vix_close       REAL,
+    regime_sizing   REAL,
+    lots            INTEGER,
+    structure       TEXT,
+    signal_time     TEXT NOT NULL,
+    UNIQUE(session_date, underlying)
+);
+"""
+
+NS_PAPER_TRADES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ns_paper_trades (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_date      TEXT NOT NULL,
+    underlying        TEXT NOT NULL,
+    structure         TEXT NOT NULL,
+    entry_time        TEXT NOT NULL,
+    entry_price       REAL NOT NULL,
+    ce_symbol         TEXT NOT NULL,
+    pe_symbol         TEXT NOT NULL,
+    ce_strike         REAL NOT NULL,
+    pe_strike         REAL NOT NULL,
+    ce_entry_premium  REAL NOT NULL,
+    pe_entry_premium  REAL NOT NULL,
+    total_premium     REAL NOT NULL,
+    lots              INTEGER NOT NULL,
+    entry_delta       REAL,
+    entry_theta       REAL,
+    exit_time         TEXT,
+    exit_price        REAL,
+    ce_exit_premium   REAL,
+    pe_exit_premium   REAL,
+    exit_reason       TEXT,
+    pnl_gross_rs      REAL,
+    pnl_net_rs        REAL,
+    costs_rs          REAL,
+    max_loss_rs       REAL,
+    adjustments       INTEGER DEFAULT 0,
+    predicted_state   TEXT,
+    confidence        REAL,
+    vix_close         REAL,
+    created_at        TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
 

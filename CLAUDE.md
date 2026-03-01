@@ -37,10 +37,16 @@ CLI Scripts → DuckDB → Core Logic → Facade → Flask UI
 | `core/filters/` | Signal quality filters (Kalman, pipeline) |
 | `core/strategies/regime/` | HMM regime observer/classifier/executor |
 | `core/models/pixityAI_config.json` | PixityAI strategy config |
+| `core/models/nifty_shield_config.json` | NiftyShield strategy config |
+| `core/strategies/nifty_shield_strategy.py` | NiftyShield — self-contained weekly options seller |
+| `scripts/nifty_shield_runner.py` | NiftyShield live daemon (30s poll) |
+| `scripts/nifty_shield_backtest.py` | NiftyShield walk-forward backtest |
+| `flask_app/blueprints/niftyshield.py` | NiftyShield Flask blueprint (`/nifty-shield/`) |
 | `flask_app/` | Thin Flask UI — display only, no computation |
 | `scripts/` | CLI entry points for backtests, scans, training |
 | `data/market_data/nse/candles/1m/` | 1-min DuckDB candle files by date |
 | `docs/` | Strategy research logs and implementation summaries |
+| `docs/NIFTYSHIELD_IMPLEMENTATION.md` | Full NiftyShield design + API reference |
 
 ---
 
@@ -81,6 +87,20 @@ CLI Scripts → DuckDB → Core Logic → Facade → Flask UI
 - **Block H** computed in `build_intraday_features.py` + `DayTypeEngine._compute_block_h()`
 - Live: `DayTypeEngine.on_bn_bar(bar)` feeds BN bars; `v9_pm_runner` fetches BN from live buffer
 - Retrain: `python scripts/build_intraday_features.py && python scripts/train_daytype_classifier.py`
+
+---
+
+## NiftyShield Strategy — Current Config
+
+- **Type**: Weekly short straddle, Nifty index options, premium selling
+- **Entry**: 13:05pm after DayType checkpoint fires (13pm)
+- **Sizing**: Choppy=2 lots, Trend=1 lot, VIX>16→–1 lot, VIX>20→skip
+- **Exit**: profit_target 50% | stop_loss 2× | time_exit 15:15 | delta_adjustment >0.55
+- **IV model**: VIX daily close ÷ 100 (flat); Black-76 synthetic pricing
+- **DB tables**: `ns_paper_signals`, `ns_paper_trades` in trading.db
+- **Dashboard**: `/nifty-shield/` (state, open position, Greeks, trade history)
+- **Backtest**: `python scripts/nifty_shield_backtest.py --walkforward`
+- **Full doc**: `docs/NIFTYSHIELD_IMPLEMENTATION.md`
 
 ---
 

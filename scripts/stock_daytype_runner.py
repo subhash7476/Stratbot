@@ -129,6 +129,7 @@ class StockDaytypeRunner:
     # ──────────────────────────────────────────────────────────────────────
 
     def _process_new_bars(self) -> None:
+        zero_bar_count = 0
         for symbol in self.symbols:
             try:
                 new_bars = self._fetch_new_bars(symbol)
@@ -136,8 +137,18 @@ class StockDaytypeRunner:
                     self.strategy.on_bar(symbol, bar)
                 if new_bars:
                     self._last_ts[symbol] = new_bars[-1]["timestamp"]
+                else:
+                    zero_bar_count += 1
             except Exception as exc:
                 logger.debug(f"[PaperRunner] {symbol}: {exc}")
+                zero_bar_count += 1
+
+        if self.symbols and zero_bar_count == len(self.symbols):
+            logger.warning(
+                "[PaperRunner] All %d symbols returned 0 bars — "
+                "live buffer may be empty or locked (check ingestor / Windows Defender)",
+                len(self.symbols),
+            )
 
     def _fetch_new_bars(self, symbol: str) -> List[dict]:
         """Read new 1m candles from the live buffer since last processed timestamp."""

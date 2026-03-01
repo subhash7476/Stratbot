@@ -20,7 +20,7 @@ from core.execution.handler import ExecutionHandler, ExecutionConfig, ExecutionM
 from core.brokers.paper_broker import PaperBroker
 from core.strategies.registry import create_strategy
 from core.strategies.precomputed_signals import PrecomputedSignalStrategy
-from core.strategies.pixityAI_batch_events import batch_generate_events, batch_generate_events_with_quality_filter
+from core.strategies.pixityAI_batch_events import batch_generate_events
 from core.execution.pixityAI_risk_engine import PixityAIRiskEngine
 from core.analytics.resampler import resample_ohlcv
 from core.analytics.populator import AnalyticsPopulator
@@ -241,39 +241,15 @@ class BacktestRunner:
             elif timeframe.endswith('h'): bar_minutes = int(timeframe[:-1]) * 60
             elif timeframe.endswith('d'): bar_minutes = 1440
 
-            # Option to use Signal Quality Filter (recommended, replaces anti-predictive meta-model)
-            use_signal_quality = strategy_params.get('use_signal_quality_filter', False)
-
-            if use_signal_quality:
-                logger.info(f"Using Signal Quality Filter pipeline...")
-                signal_config_path = strategy_params.get('signal_quality_config', 'core/models/signal_quality_config.json')
-
-                raw_events, filter_stats = batch_generate_events_with_quality_filter(
-                    df_resampled,
-                    config_path=signal_config_path,
-                    swing_period=pixity_config.get('swing_period', 5),
-                    reversion_k=pixity_config.get('reversion_k', 2.0),
-                    time_stop_bars=pixity_config.get('time_stop_bars', 12),
-                    bar_minutes=bar_minutes
-                )
-
-                logger.info(
-                    f"Signal Quality Filter: {filter_stats.get('filtered_event_count', len(raw_events))}/"
-                    f"{filter_stats.get('raw_event_count', len(raw_events))} events passed "
-                    f"({filter_stats.get('acceptance_rate_pct', 100.0):.1f}% acceptance)"
-                )
-
-                # Store filter stats in run params for analysis
-                strategy_params['filter_stats'] = filter_stats
-            else:
-                raw_events = batch_generate_events(
-                    df_resampled,
-                    swing_period=pixity_config.get('swing_period', 5),
-                    reversion_k=pixity_config.get('reversion_k', 2.0),
-                    time_stop_bars=pixity_config.get('time_stop_bars', 12),
-                    bar_minutes=bar_minutes,
-                    skip_reversion=strategy_params.get('skip_reversion', pixity_config.get('skip_reversion', False)),
-                )
+            # 3. Batch Generate Events
+            raw_events = batch_generate_events(
+                df_resampled,
+                swing_period=pixity_config.get('swing_period', 5),
+                reversion_k=pixity_config.get('reversion_k', 2.0),
+                time_stop_bars=pixity_config.get('time_stop_bars', 12),
+                bar_minutes=bar_minutes,
+                skip_reversion=strategy_params.get('skip_reversion', pixity_config.get('skip_reversion', False)),
+            )
 
             # Filter events to backtest date range only (warmup data was for indicators)
             raw_events = [e for e in raw_events if e.timestamp >= start_time]

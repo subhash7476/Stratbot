@@ -100,6 +100,21 @@ def api_status():
     except Exception:
         pass
 
+    # Live buffer health — count 1m candles written today
+    live_buffer_bars = 0
+    try:
+        from datetime import time as _t
+        today_open = datetime.combine(date.today(), _t(9, 0, 0))
+        with _db().live_buffer_reader() as conns:
+            if "candles" in conns:
+                row = conns["candles"].execute(
+                    "SELECT COUNT(*) FROM candles WHERE timeframe='1m' AND timestamp >= ?",
+                    [today_open],
+                ).fetchone()
+                live_buffer_bars = row[0] if row else 0
+    except Exception:
+        pass
+
     return jsonify({
         "success": True,
         "status": status,
@@ -110,6 +125,7 @@ def api_status():
         "symbols_count": symbols_count,
         "signals_today": signals_count,
         "trades_today":  trades_count,
+        "live_buffer_bars_today": live_buffer_bars,
         "today": _today(),
     })
 

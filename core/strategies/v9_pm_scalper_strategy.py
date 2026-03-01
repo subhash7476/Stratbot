@@ -10,6 +10,9 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from core.state.daytype_engine import DayTypeEngine, DayTypeState
+from core.brokers.upstox_market_data import UpstoxMarketData
+from core.execution.options.selector import OptionsContractSelector
+from core.events import SignalType
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,13 @@ class V9PMScalperStrategy:
         self._exit_reason: str = ""
         self._pnl_gross: Optional[float] = None
         self._pnl_net: Optional[float] = None
+
+        # Option details
+        self._option = None          # Option instrument from selector
+        self._entry_premium = None   # Upstox LTP at entry
+        self._exit_premium = None    # Upstox LTP at exit
+        self._pnl_net_rs = None      # net PnL in Rupees
+        self._mkt = UpstoxMarketData()
         
         self._init_db()
 
@@ -57,6 +67,19 @@ class V9PMScalperStrategy:
             with self.db.trading_writer() as conn:
                 conn.execute(V9_PAPER_SIGNALS_SCHEMA)
                 conn.execute(V9_PAPER_TRADES_SCHEMA)
+
+                # Migration for options columns
+                for col, typedef in [
+                    ("option_symbol",  "TEXT"),
+                    ("entry_premium",  "REAL"),
+                    ("exit_premium",   "REAL"),
+                    ("lot_size",       "INTEGER DEFAULT 75"),
+                    ("pnl_rs",         "REAL"),
+                ]:
+                    try:
+                        conn.execute(f"ALTER TABLE v9_paper_trades ADD COLUMN {col} {typedef}")
+                    except Exception:
+                        pass  # column already exists
         except Exception as exc:
             logger.error(f"[V9Strategy] DB init failed: {exc}")
 
@@ -119,9 +142,25 @@ class V9PMScalperStrategy:
                 self._entry_price = float(bar["open"])
                 self._stop_level = round(self._entry_price * (1 - STOP_PCT / 100), 4)
                 self._entry_time = ts_ist
-                self._sm = "IN_POSITION"
-                self._persist_trade_entry()
-                logger.info(f"[V9Strategy] ENTER LONG @ {self._entry_price:.2f}")
+                
+                # Select option contract
+                selector = OptionsContractSelector()
+                self._option = selector.select(SYMBOL, self._entry_price, SignalType.BUY, ts_ist)
+
+                # Fetch live premium
+                if self._option:
+                    self._entry_premium = self._mkt.fetch_ltp(f"NSE_FO|{self._option.symbol}")
+                    if self._entry_premium is None:
+                        logger.warning(f"[V9Strategy] Could not fetch option LTP for {self._option.symbol} — skipping entry")
+                        self._sm = "DONE"
+                        return
+                    
+                    self._sm = "IN_POSITION"
+                    self._persist_trade_entry()
+                    logger.info(f"[V9Strategy] ENTER LONG @ {self._entry_price:.2f} (Option: {self._option.symbol} @ {self._entry_premium})")
+                else:
+                    logger.warning("[V9Strategy] Option selector failed to find a contract — skipping entry")
+                    self._sm = "DONE"
 
         # IN_POSITION: manage exit
         if self._sm == "IN_POSITION":
@@ -129,12 +168,17 @@ class V9PMScalperStrategy:
             lo = float(bar["low"])
 
             # 1. Stop loss
-            if lo <= self._stop_level:
+            if self._stop_level is not None and lo <= self._stop_level:
                 self._exit_price = self._stop_level
                 self._exit_time = ts_ist
                 self._exit_reason = "stop_hit"
+                
+                # Fetch live premium for exit
+                if self._option:
+                    self._exit_premium = self._mkt.fetch_ltp(f"NSE_FO|{self._option.symbol}")
+
                 self._close_position()
-                logger.info(f"[V9Strategy] STOP HIT @ {self._exit_price:.2f}")
+                logger.info(f"[V9Strategy] STOP HIT @ {self._exit_price:.2f} (Option Exit: {self._exit_premium})")
                 return
 
             # 2. Time exit
@@ -142,8 +186,13 @@ class V9PMScalperStrategy:
                 self._exit_price = float(bar["open"])
                 self._exit_time = ts_ist
                 self._exit_reason = "time_exit"
+                
+                # Fetch live premium for exit
+                if self._option:
+                    self._exit_premium = self._mkt.fetch_ltp(f"NSE_FO|{self._option.symbol}")
+
                 self._close_position()
-                logger.info(f"[V9Strategy] TIME EXIT @ {self._exit_price:.2f}")
+                logger.info(f"[V9Strategy] TIME EXIT @ {self._exit_price:.2f} (Option Exit: {self._exit_premium})")
                 return
 
     def _reset_session(self, new_date: date):
@@ -161,10 +210,32 @@ class V9PMScalperStrategy:
         self._exit_reason = ""
         self._pnl_gross = None
         self._pnl_net = None
+        
+        # Reset option fields
+        self._option = None
+        self._entry_premium = None
+        self._exit_premium = None
+        self._pnl_net_rs = None
 
     def _close_position(self):
-        self._pnl_gross = (self._exit_price - self._entry_price) / self._entry_price * 100
-        self._pnl_net = self._pnl_gross - ROUND_TRIP
+        # Calculate underlying PnL % (futures proxy)
+        if self._exit_price is not None and self._entry_price is not None:
+            self._pnl_gross = (self._exit_price - self._entry_price) / self._entry_price * 100
+            self._pnl_net = self._pnl_gross - ROUND_TRIP
+        else:
+            self._pnl_gross = 0.0
+            self._pnl_net = 0.0
+        
+        # Calculate real Option PnL in Rupees
+        lot_size = self._option.lot_size if self._option else 75
+        if self._entry_premium and self._exit_premium:
+            pnl_gross_rs = (self._exit_premium - self._entry_premium) * lot_size
+            # Costs: Rs 20 brokerage × 2 + STT 0.125% on exit side
+            costs_rs = 40 + (self._exit_premium * lot_size * 0.00125)
+            self._pnl_net_rs = pnl_gross_rs - costs_rs
+        else:
+            self._pnl_net_rs = None
+
         self._sm = "DONE"
         self._persist_trade_exit()
 
@@ -191,13 +262,17 @@ class V9PMScalperStrategy:
                 conn.execute(
                     """
                     INSERT INTO v9_paper_trades
-                    (session_date, entry_time, entry_price, stop_level, confidence, predicted_state, model_version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (session_date, entry_time, entry_price, stop_level, confidence, 
+                     predicted_state, model_version, option_symbol, entry_premium, lot_size)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         str(self._session_date), self._to_str(self._entry_time),
                         self._entry_price, self._stop_level, self._confidence,
-                        self._day_type, self._model_version
+                        self._day_type, self._model_version,
+                        self._option.symbol if self._option else None,
+                        self._entry_premium,
+                        self._option.lot_size if self._option else 75
                     ]
                 )
         except Exception as exc:
@@ -210,12 +285,15 @@ class V9PMScalperStrategy:
                     """
                     UPDATE v9_paper_trades
                     SET exit_time = ?, exit_price = ?, exit_reason = ?,
-                        pnl_gross_pct = ?, pnl_net_pct = ?
+                        pnl_gross_pct = ?, pnl_net_pct = ?,
+                        exit_premium = ?, pnl_rs = ?
                     WHERE session_date = ? AND exit_time IS NULL
                     """,
                     [
                         self._to_str(self._exit_time), self._exit_price, self._exit_reason,
-                        self._pnl_gross, self._pnl_net, str(self._session_date)
+                        self._pnl_gross, self._pnl_net,
+                        self._exit_premium, self._pnl_net_rs,
+                        str(self._session_date)
                     ]
                 )
         except Exception as exc:

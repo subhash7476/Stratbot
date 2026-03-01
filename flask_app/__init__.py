@@ -187,6 +187,12 @@ def create_app(test_config=None):
     from flask_app.blueprints.paper_trading import paper_trading_bp
     app.register_blueprint(paper_trading_bp)
 
+    from ftmo.blueprint import ftmo_bp
+    app.register_blueprint(ftmo_bp)
+
+    from flask_app.blueprints.niftyshield import niftyshield_bp
+    app.register_blueprint(niftyshield_bp)
+
     # Global context processor for templates
     @app.context_processor
     def inject_user_context():

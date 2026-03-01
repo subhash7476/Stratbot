@@ -103,14 +103,28 @@ def run_paper_trading(db_manager: DatabaseManager, stop_event: threading.Event, 
         print(f"WARNING: Paper trading thread failed: {e}")
 
 
-def run_v9_pm_trading(db_manager: DatabaseManager, stop_event: threading.Event):
+def run_v9_pm_trading(db_manager: DatabaseManager, stop_event: threading.Event, app=None):
     """Background thread for V9 PM Scalper paper trading."""
     try:
         from scripts.v9_pm_runner import V9PMRunner
         runner = V9PMRunner(db_manager)
+        if app is not None:
+            app.v9_runner = runner
         runner.run(stop_event)
     except Exception as e:
         print(f"WARNING: V9 PM trading thread failed: {e}")
+
+
+def run_nifty_shield(db_manager: DatabaseManager, stop_event: threading.Event, app=None):
+    """Background thread for NiftyShield weekly options selling."""
+    try:
+        from scripts.nifty_shield_runner import NiftyShieldRunner
+        runner = NiftyShieldRunner(db_manager)
+        if app is not None:
+            app.nifty_shield_runner = runner
+        runner.run(stop_event)
+    except Exception as e:
+        print(f"WARNING: NiftyShield thread failed: {e}")
 
 
 def run_ingestor(db_manager: DatabaseManager, stop_event: threading.Event):
@@ -188,13 +202,23 @@ if __name__ == '__main__':
     # 3d. Start V9 PM Scalper Paper Trading Thread
     v9_thread = threading.Thread(
         target=run_v9_pm_trading,
-        args=(db_manager, stop_event),
+        args=(db_manager, stop_event, app),
         name="V9PMTradingThread",
         daemon=True,
     )
     v9_thread.start()
     print("V9 PM Scalper paper trading thread started.")
-    
+
+    # 3e. Start NiftyShield Options Selling Thread
+    ns_thread = threading.Thread(
+        target=run_nifty_shield,
+        args=(db_manager, stop_event, app),
+        name="NiftyShieldThread",
+        daemon=True,
+    )
+    ns_thread.start()
+    print("NiftyShield weekly options selling thread started.")
+
     host = os.environ.get('FLASK_HOST', '127.0.0.1')
     port = int(os.environ.get('FLASK_PORT', 5000))
     

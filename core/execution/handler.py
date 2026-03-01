@@ -471,12 +471,22 @@ class ExecutionHandler:
                 signal.symbol)
 
             # Phase 9A: Instrument Abstraction & Order Creation
-            instrument = InstrumentParser.parse(signal.symbol)
+            if signal.metadata.get("execution_mode") == "option" and signal.signal_type != SignalType.EXIT:
+                from core.execution.options.selector import OptionsContractSelector
+                instrument = OptionsContractSelector().select(
+                    underlying=signal.symbol,
+                    underlying_price=current_price,
+                    direction=signal.signal_type,
+                    timestamp=signal.timestamp,
+                    policy=signal.metadata.get("option_policy", {}),
+                )
+            else:
+                instrument = InstrumentParser.parse(signal.symbol)
 
             # Determine Side and Quantity
             if signal.signal_type == SignalType.EXIT:
                 if current_position.side == PositionSide.FLAT:
-                    return None 
+                    return None
 
                 side = OrderSide.SELL if current_position.side == PositionSide.LONG else OrderSide.BUY
                 quantity = current_position.quantity  # Close full position

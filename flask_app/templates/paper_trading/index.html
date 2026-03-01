@@ -29,6 +29,9 @@
     <div>
         <h1 class="text-2xl font-bold text-white">Stock Day-Type Paper Trading</h1>
         <p class="text-sm text-slate-400 mt-1" id="page-subtitle">10:00 AM classifier | SL 1% | TP 2% | Trailing SL | Rs 50K/trade | Min conf: 50%</p>
+        <div id="buffer-warning" class="hidden mt-2 px-3 py-1.5 rounded-md bg-amber-900/60 border border-amber-500/50 text-amber-300 text-xs">
+            &#9888; Live buffer empty &mdash; ingestor may be down or Windows Defender is locking candles_today.duckdb
+        </div>
     </div>
     <div class="flex items-center space-x-3">
         <!-- Broker selector -->
@@ -320,6 +323,25 @@ function setBroker(broker) {
 // -------------------------------------------------------------------------
 //  Master refresh
 // -------------------------------------------------------------------------
+function loadStatus() {
+    return fetch('/paper-trading/api/status')
+        .then(r => r.json())
+        .then(s => {
+            const bars = s.live_buffer_bars_today ?? -1;
+            const now  = new Date();
+            const pastOpen = (now.getHours() > 9) || (now.getHours() === 9 && now.getMinutes() >= 15);
+            const bufWarn  = document.getElementById('buffer-warning');
+            if (bufWarn) {
+                if (s.status === 'running' && pastOpen && bars === 0) {
+                    bufWarn.classList.remove('hidden');
+                } else {
+                    bufWarn.classList.add('hidden');
+                }
+            }
+        })
+        .catch(() => {});
+}
+
 function refreshAll() {
     spinRefresh(true);
     Promise.all([
@@ -327,6 +349,7 @@ function refreshAll() {
         loadSignals(),
         loadPositions(),
         loadTrades(),
+        loadStatus(),
     ]).finally(() => spinRefresh(false));
 }
 

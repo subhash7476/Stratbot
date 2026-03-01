@@ -89,3 +89,27 @@ class Black76Engine:
             rho = (-T * K * exp_neg_rT * N_neg_d2) * 0.01
 
         return Greeks(delta, gamma, vega, theta, rho)
+
+    @classmethod
+    def calculate_price(cls,
+                        F: float,
+                        K: float,
+                        T: float,
+                        r: float,
+                        sigma: float,
+                        option_type: Literal['CE', 'PE']) -> float:
+        """Black-76 option price. Used for synthetic backtesting where real premiums unavailable."""
+        if T <= 0:
+            intrinsic = max(F - K, 0.0) if option_type == 'CE' else max(K - F, 0.0)
+            return intrinsic
+        if sigma <= 0:
+            intrinsic = max(F - K, 0.0) if option_type == 'CE' else max(K - F, 0.0)
+            return math.exp(-r * T) * intrinsic
+        sqrt_T = math.sqrt(T)
+        d1 = (math.log(F / K) + 0.5 * sigma ** 2 * T) / (sigma * sqrt_T)
+        d2 = d1 - sigma * sqrt_T
+        disc = math.exp(-r * T)
+        if option_type == 'CE':
+            return disc * (F * cls._norm_cdf(d1) - K * cls._norm_cdf(d2))
+        else:
+            return disc * (K * cls._norm_cdf(-d2) - F * cls._norm_cdf(-d1))

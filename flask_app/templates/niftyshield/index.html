@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+
+{% block title %}NiftyShield — Options Selling{% endblock %}
+{% block breadcrumb %}NiftyShield / Weekly Options Selling{% endblock %}
+
+{% block head %}
+<style>
+    .state-badge { @apply px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest; }
+    .pnl-pos { color: #10b981; }
+    .pnl-neg { color: #ef4444; }
+    .metric-card { @apply glass rounded-2xl p-5 flex flex-col; }
+    .regime-choppy  { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+    .regime-trend   { background: rgba(245,158,11,0.12);  color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+    .regime-unknown { background: rgba(100,116,139,0.12); color: #64748b; border: 1px solid rgba(100,116,139,0.3); }
+    .sm-idle        { background: rgba(100,116,139,0.15); color: #94a3b8; }
+    .sm-awaiting    { background: rgba(245,158,11,0.15);  color: #fbbf24; }
+    .sm-positioned  { background: rgba(59,130,246,0.15);  color: #60a5fa; }
+    .sm-done        { background: rgba(16,185,129,0.15);  color: #34d399; }
+    .exit-profit_target { color: #10b981; }
+    .exit-stop_loss     { color: #ef4444; }
+    .exit-time_exit     { color: #94a3b8; }
+    .exit-adjustment    { color: #f59e0b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header row -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">NiftyShield</h1>
+            <p class="text-sm text-slate-400 mt-1">Systematic weekly options selling · short straddle · regime-gated</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="runner-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-300">
+                <span class="w-1.5 h-1.5 rounded-full bg-slate-400 inline-block mr-1 animate-pulse"></span>
+                Loading…
+            </span>
+            <button onclick="refresh()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-colors">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- KPI row -->
+    <div id="kpi-row" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="metric-card">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">State</p>
+            <p id="kpi-state" class="text-lg font-bold text-white">—</p>
+        </div>
+        <div class="metric-card">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Regime · Confidence</p>
+            <p id="kpi-regime" class="text-lg font-bold text-white">—</p>
+        </div>
+        <div class="metric-card">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">India VIX (prev close)</p>
+            <p id="kpi-vix" class="text-lg font-bold text-white">—</p>
+        </div>
+        <div class="metric-card">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">NF bars today</p>
+            <p id="kpi-bars" class="text-lg font-bold text-white">—</p>
+        </div>
+    </div>
+
+    <!-- Live position card (hidden when no open trade) -->
+    <div id="position-card" class="glass rounded-2xl p-6 hidden">
+        <div class="flex items-center justify-between mb-5">
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                <i class="fas fa-bolt text-blue-400"></i>
+                Open Position
+            </h2>
+            <span class="text-xs text-slate-500" id="pos-entry-time">—</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+            <!-- CE leg -->
+            <div class="bg-slate-800/50 rounded-xl p-4">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Call (CE)</p>
+                <p id="pos-ce-symbol" class="text-sm font-bold text-emerald-400 break-all">—</p>
+                <p id="pos-ce-strike" class="text-xs text-slate-400 mt-1">Strike: —</p>
+                <p id="pos-ce-prem" class="text-xs text-slate-400">Entry: — pts</p>
+            </div>
+            <!-- PE leg -->
+            <div class="bg-slate-800/50 rounded-xl p-4">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Put (PE)</p>
+                <p id="pos-pe-symbol" class="text-sm font-bold text-rose-400 break-all">—</p>
+                <p id="pos-pe-strike" class="text-xs text-slate-400 mt-1">Strike: —</p>
+                <p id="pos-pe-prem" class="text-xs text-slate-400">Entry: — pts</p>
+            </div>
+            <!-- Greeks -->
+            <div class="bg-slate-800/50 rounded-xl p-4">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Greeks at Entry</p>
+                <p id="pos-delta" class="text-sm font-bold text-white">Δ —</p>
+                <p id="pos-theta" class="text-sm font-bold text-amber-400 mt-1">Θ —/day</p>
+            </div>
+            <!-- Premium / size -->
+            <div class="bg-slate-800/50 rounded-xl p-4">
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Premium · Lots</p>
+                <p id="pos-prem" class="text-2xl font-bold text-white">—</p>
+                <p id="pos-lots" class="text-xs text-slate-400 mt-1">— lot(s)</p>
+            </div>
+        </div>
+        <!-- Risk bars -->
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <p class="text-xs text-slate-500 mb-1">Profit target (50% of premium)</p>
+                <div class="h-2 bg-slate-700 rounded-full">
+                    <div id="bar-target" class="h-2 bg-emerald-500 rounded-full transition-all" style="width:0%"></div>
+                </div>
+                <p id="bar-target-label" class="text-xs text-slate-500 mt-1">0% of target</p>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 mb-1">Stop loss (2× premium)</p>
+                <div class="h-2 bg-slate-700 rounded-full">
+                    <div id="bar-sl" class="h-2 bg-rose-500 rounded-full transition-all" style="width:0%"></div>
+                </div>
+                <p id="bar-sl-label" class="text-xs text-slate-500 mt-1">0% of SL</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Aggregate stats row -->
+    <div class="glass rounded-2xl p-6">
+        <h2 class="text-base font-semibold text-white mb-5 flex items-center gap-2">
+            <i class="fas fa-chart-bar text-blue-400"></i>
+            All-Time Summary
+        </h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Trades</p>
+                <p id="s-trades" class="text-2xl font-bold text-white mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Win Rate</p>
+                <p id="s-wr" class="text-2xl font-bold text-white mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Net PnL</p>
+                <p id="s-pnl" class="text-2xl font-bold mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Avg PnL</p>
+                <p id="s-avg" class="text-2xl font-bold mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Avg Premium</p>
+                <p id="s-prem" class="text-2xl font-bold text-white mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Max Adverse</p>
+                <p id="s-dd" class="text-2xl font-bold text-rose-400 mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Choppy WR</p>
+                <p id="s-choppy" class="text-2xl font-bold text-emerald-400 mt-1">—</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-slate-400 uppercase tracking-widest">Trend WR</p>
+                <p id="s-trend" class="text-2xl font-bold text-amber-400 mt-1">—</p>
+            </div>
+        </div>
+        <!-- Exit reason pills -->
+        <div class="flex gap-3 mt-5 flex-wrap" id="exit-pills"></div>
+    </div>
+
+    <!-- Trade history table -->
+    <div class="glass rounded-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                <i class="fas fa-history text-blue-400"></i>
+                Trade History
+                <span id="trade-count" class="ml-2 text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">0</span>
+            </h2>
+            <label class="flex items-center gap-2 text-xs text-slate-400">
+                <input type="checkbox" id="all-dates" class="rounded accent-blue-500" onchange="loadTrades()">
+                All dates
+            </label>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-[10px] uppercase tracking-widest text-slate-500 bg-slate-800/50">
+                        <th class="px-4 py-3 text-left">Date</th>
+                        <th class="px-4 py-3 text-left">Regime</th>
+                        <th class="px-4 py-3 text-right">VIX</th>
+                        <th class="px-4 py-3 text-left">CE Strike</th>
+                        <th class="px-4 py-3 text-left">PE Strike</th>
+                        <th class="px-4 py-3 text-right">Premium</th>
+                        <th class="px-4 py-3 text-right">Lots</th>
+                        <th class="px-4 py-3 text-right">Δ entry</th>
+                        <th class="px-4 py-3 text-right">Θ entry</th>
+                        <th class="px-4 py-3 text-left">Exit</th>
+                        <th class="px-4 py-3 text-right">Adj</th>
+                        <th class="px-4 py-3 text-right font-semibold">Net PnL ₹</th>
+                    </tr>
+                </thead>
+                <tbody id="trades-body" class="divide-y divide-slate-800">
+                    <tr>
+                        <td colspan="12" class="px-4 py-8 text-center text-slate-500 text-sm">
+                            <i class="fas fa-circle-notch fa-spin mr-2"></i>Loading…
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const fmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
+const fmtPt = v => v == null ? '—' : v.toFixed(1);
+const fmtRs = v => {
+    if (v == null) return '—';
+    const s = fmt.format(Math.abs(v));
+    return (v >= 0 ? '+' : '−') + '₹' + s;
+};
+
+function smClass(state) {
+    if (!state) return 'sm-idle';
+    const s = state.toLowerCase();
+    if (s.includes('idle'))     return 'sm-idle';
+    if (s.includes('awaiting')) return 'sm-awaiting';
+    if (s.includes('posit'))    return 'sm-positioned';
+    if (s.includes('done'))     return 'sm-done';
+    return 'sm-idle';
+}
+
+function regimeClass(r) {
+    if (!r) return 'regime-unknown';
+    if (r === 'Choppy')    return 'regime-choppy';
+    if (r.includes('Trend')) return 'regime-trend';
+    return 'regime-unknown';
+}
+
+async function loadStatus() {
+    try {
+        const res = await fetch('/nifty-shield/api/status');
+        const d   = await res.json();
+        if (!d.success) return;
+
+        // Runner badge
+        const badge = document.getElementById('runner-badge');
+        if (d.runner_active) {
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block mr-1 animate-pulse"></span> Running';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400';
+        } else {
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block mr-1"></span> Stopped';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-400';
+        }
+
+        const live = d.live || {};
+
+        // State
+        const state = live.state || 'IDLE';
+        document.getElementById('kpi-state').innerHTML =
+            `<span class="state-badge ${smClass(state)}">${state}</span>`;
+
+        // Regime
+        const dayType  = live.day_type || '—';
+        const conf     = live.confidence ? (live.confidence * 100).toFixed(0) + '%' : '—';
+        document.getElementById('kpi-regime').innerHTML =
+            `<span class="state-badge ${regimeClass(dayType)}">${dayType}</span>
+             <span class="text-sm text-slate-400 ml-2">${conf}</span>`;
+
+        // VIX
+        const vix = live.vix_close;
+        let vixColor = 'text-emerald-400';
+        if (vix > 20) vixColor = 'text-rose-400';
+        else if (vix > 16) vixColor = 'text-amber-400';
+        document.getElementById('kpi-vix').innerHTML =
+            vix ? `<span class="${vixColor} font-bold">${vix.toFixed(2)}</span>` : '<span class="text-slate-500">N/A</span>';
+
+        // Live bars
+        document.getElementById('kpi-bars').textContent = d.live_bars_nf ?? '—';
+
+        // Open position card
+        const ot = d.open_trade;
+        const posCard = document.getElementById('position-card');
+        if (ot) {
+            posCard.classList.remove('hidden');
+            document.getElementById('pos-ce-symbol').textContent = ot.ce_symbol || '—';
+            document.getElementById('pos-pe-symbol').textContent = ot.pe_symbol || '—';
+            document.getElementById('pos-ce-strike').textContent = `Strike: ${ot.ce_strike ?? '—'}`;
+            document.getElementById('pos-pe-strike').textContent = `Strike: ${ot.pe_strike ?? '—'}`;
+            document.getElementById('pos-ce-prem').textContent   = `Entry: ${fmtPt(ot.ce_entry_premium)} pts`;
+            document.getElementById('pos-pe-prem').textContent   = `Entry: ${fmtPt(ot.pe_entry_premium)} pts`;
+            document.getElementById('pos-delta').textContent = `Δ ${ot.entry_delta != null ? ot.entry_delta.toFixed(3) : '—'}`;
+            document.getElementById('pos-theta').textContent = `Θ ${ot.entry_theta != null ? ot.entry_theta.toFixed(2) : '—'}/day`;
+            document.getElementById('pos-prem').textContent  = fmtPt(ot.total_premium);
+            document.getElementById('pos-lots').textContent  = `${ot.lots ?? '—'} lot(s)`;
+            document.getElementById('pos-entry-time').textContent = ot.entry_time ? ot.entry_time.replace('T', ' ').slice(0, 16) : '';
+        } else {
+            posCard.classList.add('hidden');
+        }
+    } catch (e) {
+        console.error('status error', e);
+    }
+}
+
+async function loadSummary() {
+    try {
+        const res = await fetch('/nifty-shield/api/summary');
+        const d   = await res.json();
+        if (!d.success) return;
+        const s = d.summary;
+
+        document.getElementById('s-trades').textContent = s.total_trades ?? '—';
+
+        const wr = document.getElementById('s-wr');
+        wr.textContent = s.win_rate != null ? s.win_rate + '%' : '—';
+        wr.className = 'text-2xl font-bold mt-1 ' + (s.win_rate >= 60 ? 'text-emerald-400' : 'pnl-neg');
+
+        const pnlEl = document.getElementById('s-pnl');
+        pnlEl.textContent = s.net_pnl_rs != null ? fmtRs(s.net_pnl_rs) : '—';
+        pnlEl.className = 'text-2xl font-bold mt-1 ' + (s.net_pnl_rs >= 0 ? 'pnl-pos' : 'pnl-neg');
+
+        const avgEl = document.getElementById('s-avg');
+        avgEl.textContent = s.avg_pnl_rs != null ? fmtRs(s.avg_pnl_rs) : '—';
+        avgEl.className = 'text-2xl font-bold mt-1 ' + (s.avg_pnl_rs >= 0 ? 'pnl-pos' : 'pnl-neg');
+
+        document.getElementById('s-prem').textContent = s.avg_premium != null ? s.avg_premium.toFixed(1) + ' pts' : '—';
+        document.getElementById('s-dd').textContent   = s.max_dd_rs   != null ? '₹' + fmt.format(s.max_dd_rs) : '—';
+        document.getElementById('s-choppy').textContent = s.choppy_wr != null ? s.choppy_wr + '%' : '—';
+        document.getElementById('s-trend').textContent  = s.trend_wr  != null ? s.trend_wr  + '%' : '—';
+
+        // Exit pills
+        const pills = document.getElementById('exit-pills');
+        pills.innerHTML = '';
+        const exitData = [
+            { key: 'profit_target', label: 'Profit Target', val: s.profit_target, cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+            { key: 'stop_loss',     label: 'Stop Loss',     val: s.stop_loss,     cls: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
+            { key: 'time_exit',     label: 'Time Exit',     val: s.time_exit,     cls: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
+        ];
+        exitData.forEach(e => {
+            if (e.val > 0) {
+                pills.innerHTML += `<span class="px-3 py-1 rounded-full text-xs font-semibold border ${e.cls}">${e.label}: ${e.val}</span>`;
+            }
+        });
+    } catch (e) {
+        console.error('summary error', e);
+    }
+}
+
+async function loadTrades() {
+    const allDates = document.getElementById('all-dates').checked;
+    const url = '/nifty-shield/api/trades?' + (allDates ? 'all=true' : 'all=false');
+    try {
+        const res = await fetch(url);
+        const d   = await res.json();
+        if (!d.success) return;
+
+        const tbody = document.getElementById('trades-body');
+        const trades = d.trades;
+        document.getElementById('trade-count').textContent = trades.length;
+
+        if (trades.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="12" class="px-4 py-8 text-center text-slate-500 text-sm">No completed trades yet.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = trades.map(t => {
+            const pnl = t.pnl_net_rs ?? 0;
+            const pnlClass = pnl >= 0 ? 'pnl-pos font-bold' : 'pnl-neg font-bold';
+            const exitCls  = `exit-${t.exit_reason} font-medium`;
+            const regimeCls = t.predicted_state === 'Choppy' ? 'text-emerald-400' : 'text-amber-400';
+            const adj = t.adjustments ?? 0;
+            return `
+            <tr class="hover:bg-slate-800/30 transition-colors">
+                <td class="px-4 py-3 text-slate-300 text-xs">${t.session_date || '—'}</td>
+                <td class="px-4 py-3">
+                    <span class="${regimeCls} text-xs font-semibold">${t.predicted_state || '—'}</span>
+                    <span class="text-slate-500 text-xs ml-1">${t.confidence ? (t.confidence*100).toFixed(0)+'%' : ''}</span>
+                </td>
+                <td class="px-4 py-3 text-right text-slate-400 text-xs">${t.vix_close ? t.vix_close.toFixed(1) : '—'}</td>
+                <td class="px-4 py-3 text-emerald-400 text-xs font-mono">${t.ce_strike ?? '—'}</td>
+                <td class="px-4 py-3 text-rose-400 text-xs font-mono">${t.pe_strike ?? '—'}</td>
+                <td class="px-4 py-3 text-right text-white text-xs">${t.total_premium ? t.total_premium.toFixed(1) : '—'}</td>
+                <td class="px-4 py-3 text-right text-slate-300 text-xs">${t.lots ?? '—'}</td>
+                <td class="px-4 py-3 text-right text-slate-400 text-xs font-mono">${t.entry_delta != null ? t.entry_delta.toFixed(3) : '—'}</td>
+                <td class="px-4 py-3 text-right text-amber-400 text-xs font-mono">${t.entry_theta != null ? t.entry_theta.toFixed(2) : '—'}</td>
+                <td class="px-4 py-3 text-xs"><span class="${exitCls}">${(t.exit_reason||'—').replace('_',' ')}</span></td>
+                <td class="px-4 py-3 text-right text-xs text-slate-400">${adj > 0 ? adj : '—'}</td>
+                <td class="px-4 py-3 text-right text-sm ${pnlClass}">${fmtRs(pnl)}</td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        console.error('trades error', e);
+    }
+}
+
+async function refresh() {
+    await Promise.all([loadStatus(), loadSummary(), loadTrades()]);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    refresh();
+    setInterval(loadStatus, 15000);   // refresh status every 15s
+    setInterval(loadSummary, 60000);  // refresh summary every 60s
+});
+</script>
+{% endblock %}

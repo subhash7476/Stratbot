@@ -122,6 +122,7 @@ class StockDaytypePaperStrategy:
         # -- Initialise DB tables & close stale positions ---------------------
         self._init_db()
         self._close_stale_positions()
+        self._restore_open_positions_from_db()
         logger.info(
             f"[PaperTrading] Strategy ready | {len(symbols)} symbols | "
             f"broker={broker} | SL={stop_pct*100:.1f}% | TP={target_pct*100:.1f}% | "
@@ -491,6 +492,10 @@ class StockDaytypePaperStrategy:
     def _manage_position(self, symbol: str, bar: dict, bar_idx: int) -> None:
         """Trailing SL, SL/TP checks, and time exit for an open position."""
         pos       = self._positions[symbol]
+        # Replay protection: on restart, bars before entry_time are replayed from
+        # the live buffer. Skip management until we reach the entry bar.
+        if bar["timestamp"] < pos["entry_time"]:
+            return
         direction = pos["direction"]
 
         # -- Update water marks for trailing SL ------------------------------
@@ -843,9 +848,11 @@ class StockDaytypePaperStrategy:
     def _close_stale_positions(self) -> None:
         """Close any unclosed trades from previous sessions on startup."""
         try:
+            today = str(date.today())
             with self.db.trading_writer() as conn:
                 count = conn.execute(
-                    "SELECT COUNT(*) FROM stock_paper_trades WHERE exit_time IS NULL"
+                    "SELECT COUNT(*) FROM stock_paper_trades WHERE exit_time IS NULL AND session_date < ?",
+                    [today],
                 ).fetchone()[0]
                 if count > 0:
                     conn.execute(
@@ -857,12 +864,70 @@ class StockDaytypePaperStrategy:
                             pnl_gross_pct = 0.0,
                             pnl_net_pct = 0.0,
                             pnl_rs = 0.0
-                        WHERE exit_time IS NULL
-                        """
+                        WHERE exit_time IS NULL AND session_date < ?
+                        """,
+                        [today],
                     )
-                    logger.info(f"[PaperTrading] Closed {count} stale position(s) from previous session.")
+                    logger.info(f"[PaperTrading] Closed {count} stale position(s) from previous session(s).")
         except Exception as exc:
             logger.warning(f"[PaperTrading] Stale position cleanup: {exc}")
+
+    def _restore_open_positions_from_db(self) -> None:
+        """Reload today's open positions into memory so SL/TP/trail management continues after restart."""
+        today = str(date.today())
+        try:
+            with self.db.trading_reader() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT symbol, trading_symbol, direction, entry_time, entry_price,
+                           stop_price, target_price, qty, capital, confidence,
+                           predicted_state, broker
+                    FROM stock_paper_trades
+                    WHERE session_date = ? AND exit_time IS NULL
+                    """,
+                    [today],
+                ).fetchall()
+            if not rows:
+                return
+            restored = 0
+            for row in rows:
+                sym = row[0]
+                if sym in self._positions:
+                    continue
+                entry_price = float(row[4])
+                stop_price  = float(row[5])
+                # Parse entry_time string back to datetime for pre-entry bar guard
+                raw_et = row[3]
+                if isinstance(raw_et, str):
+                    entry_time = datetime.fromisoformat(raw_et)
+                else:
+                    entry_time = raw_et
+                self._positions[sym] = {
+                    "symbol":            sym,
+                    "trading_symbol":    row[1],
+                    "direction":         row[2],
+                    "entry_time":        entry_time,
+                    "entry_price":       entry_price,
+                    "stop_price":        stop_price,
+                    "target_price":      float(row[6]),
+                    "initial_stop_dist": abs(entry_price - stop_price),
+                    "high_water":        entry_price,
+                    "low_water":         entry_price,
+                    "qty":               int(row[7]),
+                    "capital":           float(row[8]),
+                    "confidence":        float(row[9]) if row[9] is not None else None,
+                    "predicted_state":   row[10],
+                    "session_date":      today,
+                    "broker":            row[11] or self.broker,
+                    "mae_pct":           0.0,
+                    "mfe_pct":           0.0,
+                }
+                restored += 1
+            if restored:
+                self._session_date = date.today()
+                logger.info(f"[PaperTrading] Restored {restored} open position(s) from DB for {today}"  )
+        except Exception as exc:
+            logger.warning(f"[PaperTrading] Failed to restore open positions: {exc}")
 
     def _to_str(self, ts) -> Optional[str]:
         """Convert datetime/date to ISO string for SQLite storage."""
