@@ -11,7 +11,7 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
 
-from core.database.manager import DatabaseManager
+from core.database.manager import DatabaseManager, DatabaseDomain
 from core.database import schema
 
 logger = logging.getLogger(__name__)
@@ -93,8 +93,8 @@ class MarketDataWriter:
         for c in candles:
             conn.execute("""
                 INSERT INTO candles 
-                (symbol, timeframe, timestamp, open, high, low, close, volume, is_synthetic)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+                (symbol, instrument_key, timeframe, timestamp, open, high, low, close, volume, is_synthetic)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
                 ON CONFLICT (symbol, timeframe, timestamp) DO UPDATE SET
                     open = EXCLUDED.open,
                     high = EXCLUDED.high,
@@ -103,11 +103,56 @@ class MarketDataWriter:
                     volume = EXCLUDED.volume,
                     is_synthetic = FALSE
             """, [
-                symbol, timeframe, c['ts_obj'], 
+                symbol, symbol, timeframe, c['ts_obj'],
                 c['open'], c['high'], c['low'], c['close'], int(c['volume'])
             ])
             count += 1
         return count
+
+    def insert_candle(
+        self,
+        instrument_key: str,
+        timestamp: datetime,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: int,
+        timeframe: str = "1m",
+        deduplicate: bool = True,
+    ) -> bool:
+        """Legacy single-candle insert API used by tests."""
+        if getattr(self.db, "_legacy_db_path", None) is not None:
+            with self.db.write(DatabaseDomain.MARKET_DATA) as conn:
+                if deduplicate:
+                    existing = conn.execute(
+                        "SELECT 1 FROM candles WHERE instrument_key = ? AND timestamp = ?",
+                        [instrument_key, timestamp],
+                    ).fetchone()
+                    if existing:
+                        return False
+                conn.execute(
+                    """
+                    INSERT INTO candles (symbol, instrument_key, timeframe, timestamp, open, high, low, close, volume, is_synthetic)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+                    """,
+                    [instrument_key, instrument_key, timeframe, timestamp, open_, high, low, close, int(volume)],
+                )
+                return True
+
+        inserted = self.insert_candles_batch(
+            symbol=instrument_key,
+            timeframe=timeframe,
+            candles=[{
+                "timestamp": timestamp,
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": volume,
+            }],
+        )
+        return inserted > 0
 
     def update_websocket_status(self, status: str, pid: int) -> None:
         """Update WebSocket connection status in config DB."""
@@ -133,9 +178,11 @@ class TradingWriter:
     def __init__(self, db_manager: Optional[DatabaseManager] = None):
         self.db = db_manager or DatabaseManager()
 
-    def save_trade(self, trade) -> None:
-        """Persist a trade record."""
+    def save_trade(self, trade, context=None) -> None:
+        """Persist a trade record and optional TLP V1 context in a single transaction."""
+        from core.database.schema import TRADING_TRADE_CONTEXT_SCHEMA
         with self.db.trading_writer() as conn:
+            # 1. Save Trade
             conn.execute(
                 """
                 INSERT INTO trades
@@ -145,18 +192,82 @@ class TradingWriter:
                 """,
                 [
                     getattr(trade, 'trade_id', None),
-                    getattr(trade, 'signal_id', None),
-                    getattr(trade, 'timestamp', datetime.now()),
+                    getattr(trade, 'signal_id_reference', getattr(trade, 'signal_id', None)),
+                    _to_str(getattr(trade, 'timestamp', datetime.now())),
                     getattr(trade, 'symbol', ''),
-                    getattr(trade, 'side', ''),
+                    getattr(trade, 'direction', getattr(trade, 'side', '')),
                     getattr(trade, 'quantity', 0),
-                    getattr(trade, 'entry_price', 0.0),
+                    getattr(trade, 'price', getattr(trade, 'entry_price', 0.0)),
                     getattr(trade, 'exit_price', 0.0),
                     getattr(trade, 'pnl', 0.0),
                     getattr(trade, 'fees', 0.0),
                     json.dumps(getattr(trade, 'metadata', {}))
                 ],
             )
+
+            # 2. Save TLP V1 Context if provided
+            if context:
+                conn.execute(TRADING_TRADE_CONTEXT_SCHEMA)
+                conn.execute(
+                    """
+                    INSERT INTO trade_context
+                    (trade_id, model_version, universe_version, regime_state, regime_confidence,
+                     session_type, dispersion_value, dispersion_pct, volatility_value, volatility_pct,
+                     breadth_ratio, sl_distance, risk_r, pnl_rs, theoretical_max_pnl, exit_efficiency,
+                     signal_timestamp, entry_timestamp, exit_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        getattr(trade, 'trade_id', None),
+                        context.model_version,
+                        context.universe_version,
+                        context.regime_state,
+                        context.regime_confidence,
+                        context.session_type,
+                        context.dispersion_value,
+                        context.dispersion_pct,
+                        context.volatility_value,
+                        context.volatility_pct,
+                        context.breadth_ratio,
+                        context.sl_distance,
+                        context.risk_r,
+                        getattr(trade, 'pnl_rs', 0.0),
+                        0.0, 0.0, # theoretical_max_pnl, exit_efficiency (filled on exit)
+                        _to_str(getattr(context, 'signal_timestamp', None)),
+                        _to_str(getattr(trade, 'timestamp', None)),
+                        None # exit_timestamp
+                    ]
+                )
+
+    def update_trade_exit(self, trade_id: str, exit_price: float, exit_ts: datetime, pnl: float, fees: float, 
+                          mae_mfe: Optional[Dict] = None) -> None:
+        """Update trade record with exit details and TLP diagnostics."""
+        with self.db.trading_writer() as conn:
+            conn.execute(
+                """
+                UPDATE trades 
+                SET exit_price = ?, pnl = ?, fees = fees + ?
+                WHERE trade_id = ?
+                """,
+                [exit_price, pnl, fees, trade_id]
+            )
+            
+            if mae_mfe:
+                conn.execute(
+                    """
+                    UPDATE trade_context
+                    SET mae_points = ?, mfe_points = ?, mae_r = ?, mfe_r = ?, 
+                        theoretical_max_pnl = ?, exit_efficiency = ?, pnl_rs = ?,
+                        exit_timestamp = ?
+                    WHERE trade_id = ?
+                    """,
+                    [
+                        mae_mfe.get('mae_points'), mae_mfe.get('mfe_points'),
+                        mae_mfe.get('mae_r'), mae_mfe.get('mfe_r'),
+                        mae_mfe.get('theoretical_max_pnl'), mae_mfe.get('exit_efficiency'),
+                        pnl, _to_str(exit_ts), trade_id
+                    ]
+                )
 
     def save_signal(self, signal) -> None:
         """Persist a signal record."""

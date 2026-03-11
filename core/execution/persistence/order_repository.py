@@ -14,7 +14,8 @@ class OrderRepository:
 
     def save(self, order: NormalizedOrder):
         try:
-            with self.store.get_connection() as conn:
+            conn = self.store.get_connection()
+            try:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO orders 
@@ -34,6 +35,9 @@ class OrderRepository:
                             order.metadata.__dict__) if order.metadata else "{}"
                     )
                 )
+                conn.commit()
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(
                 f"Failed to save order {order.correlation_id}: {e}")
@@ -42,7 +46,8 @@ class OrderRepository:
     def get_all(self) -> List[NormalizedOrder]:
         orders = []
         try:
-            with self.store.get_connection() as conn:
+            conn = self.store.get_connection()
+            try:
                 rows = conn.execute(
                     "SELECT * FROM orders ORDER BY timestamp ASC").fetchall()
                 for row in rows:
@@ -66,6 +71,9 @@ class OrderRepository:
                         metadata=metadata
                     )
                     orders.append(order)
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(f"Failed to load orders: {e}")
         return orders
+

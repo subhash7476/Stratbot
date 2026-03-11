@@ -1,37 +1,34 @@
-"""
-EHMA Pivot Strategy
--------------------
-Pure price-action strategy using EHMA crossovers.
-"""
+"""Legacy-compatible EHMA pivot strategy shim."""
+
 from typing import Optional
-from core.strategies.base import BaseStrategy, StrategyContext
+
 from core.events import OHLCVBar, SignalEvent, SignalType
+from core.strategies.base import BaseStrategy, StrategyContext
+
 
 class EHMAPivotStrategy(BaseStrategy):
-    """
-    Strategy that uses Hull Moving Average (EHMA) crossovers.
-    """
-    
+    """Minimal EHMA pivot strategy used by legacy tests."""
+
     def process_bar(self, bar: OHLCVBar, context: StrategyContext) -> Optional[SignalEvent]:
-        # Simple logic for demo
         if not context.analytics_snapshot:
             return None
-            
-        # Example condition (real logic would use EHMA values from snapshot)
-        if context.analytics_snapshot.signal.value == "BUY":
+
+        signal_val = getattr(context.analytics_snapshot.signal, "value", "")
+        if signal_val == "BUY":
             return SignalEvent(
                 strategy_id=self.strategy_id,
                 symbol=bar.symbol,
                 timestamp=bar.timestamp,
                 signal_type=SignalType.BUY,
-                confidence=0.8
+                confidence=0.8,
             )
-        elif context.analytics_snapshot.signal.value == "SELL":
+        if signal_val == "SELL":
             return SignalEvent(
                 strategy_id=self.strategy_id,
                 symbol=bar.symbol,
                 timestamp=bar.timestamp,
                 signal_type=SignalType.SELL,
-                confidence=0.8
+                confidence=0.8,
             )
         return None
+

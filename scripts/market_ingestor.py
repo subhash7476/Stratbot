@@ -31,11 +31,18 @@ logger = setup_logger("market_ingestor")
 PID_FILE = ROOT / "data" / "market_ingestor.pid"
 UNIVERSE_FILE = ROOT / "config" / "market_universe.json"
 ZMQ_CONFIG_FILE = ROOT / "config" / "zmq.json"
+REQUIRED_INDEX_SYMBOLS = [
+    "NSE_INDEX|Nifty 50",
+    "NSE_INDEX|Nifty Bank",
+    "NSE_INDEX|India VIX",
+]
 
 class MarketIngestorDaemon:
     def __init__(self, db_manager: Optional[DatabaseManager] = None, zmq_config_file: Optional[Path] = None):
         self._is_running = True
         self._is_stopping = False
+        self._daily_fill_done = False
+        self._last_cleanup_date = None
         self.ingestor = None
         
         # Initialize Database Manager if not provided
@@ -80,7 +87,18 @@ class MarketIngestorDaemon:
             sys.exit(1)
         with open(UNIVERSE_FILE, "r") as f:
             data = json.load(f)
-            return data.get("symbols", [])
+            symbols = data.get("symbols", [])
+
+            # Always include core index symbols used by intraday strategies
+            # (NiftyShield, V9 PM, day-type engines), even if config misses them.
+            merged = list(dict.fromkeys(symbols + REQUIRED_INDEX_SYMBOLS))
+            if len(merged) != len(symbols):
+                logger.warning(
+                    "market_universe.json missing required index symbols; "
+                    "auto-appending %s",
+                    [s for s in REQUIRED_INDEX_SYMBOLS if s not in symbols],
+                )
+            return merged
 
     def _load_zmq_config(self, config_file: Path):
         if not config_file.exists():
@@ -168,57 +186,103 @@ class MarketIngestorDaemon:
         except Exception as e:
             logger.error(f"Failed to update websocket_status: {e}")
 
+    def _try_connect(self, token: str):
+        """Start recovery + WebSocket with the given token."""
+        upstox_client = UpstoxClient(access_token=token)
+        try:
+            recovery = RecoveryManager(upstox_client, db_manager=self.db_manager)
+            logger.info("Running initial recovery/backfill...")
+            recovery.run_recovery(self.symbols)
+        except Exception as e:
+            logger.warning(f"Recovery failed (non-blocking): {e}")
+        self.ingestor = WebSocketIngestor(self.symbols, access_token=token, db_manager=self.db_manager)
+        self.ingestor.start()
+        self._update_websocket_status("OPEN")
+        logger.info("WebSocket ingestor started successfully.")
+
+        # Trigger daily historical fill (once per session, non-blocking)
+        if not self._daily_fill_done:
+            threading.Thread(
+                target=self._run_daily_fill,
+                args=(token,),
+                name="DailyHistoricalFill",
+                daemon=True,
+            ).start()
+
+    def _run_daily_fill(self, token: str):
+        """Background: fetch previous trading day's 1m data for entire universe."""
+        try:
+            from scripts.daily_historical_fill import fill_previous_day
+            result = fill_previous_day(token, self.db_manager)
+            self._daily_fill_done = True
+            if result.get("skipped"):
+                logger.info(f"[DailyFill] Skipped — {result['date']} already has data.")
+            else:
+                logger.info(
+                    f"[DailyFill] Complete: {result['date']} | "
+                    f"{result['symbols_fetched']} symbols | {result['total_bars']} bars"
+                )
+        except Exception as e:
+            logger.error(f"[DailyFill] Failed (non-blocking): {e}")
+
+    def _purge_stale_live_buffer(self, today):
+        """Delete ticks and candles from previous trading sessions (keep today only)."""
+        try:
+            cutoff = datetime(today.year, today.month, today.day)
+            with self.db_manager.live_buffer_writer() as conns:
+                conns['ticks'].execute("DELETE FROM ticks WHERE timestamp < ?", [cutoff])
+                conns['candles'].execute("DELETE FROM candles WHERE timestamp < ?", [cutoff])
+            self._last_cleanup_date = today
+            logger.info(f"[Ingestor] EOD purge: live buffer cleared of rows before {today}.")
+        except Exception as e:
+            logger.error(f"[Ingestor] EOD purge failed: {e}")
+
     def run(self, mock: bool = False):
         # Only acquire file lock if we are NOT running unified (PID check)
         # But for simplicity, we let the unified runner manage it.
-        # self._acquire_lock() 
-        
+        # self._acquire_lock()
+
         logger.info("Market Ingestor Daemon started.")
-        
+
         if not mock:
-            # 1. Recovery on startup
+            # 1. Re-read credentials fresh from disk (singleton may be stale)
+            credentials._load()
             token = credentials.get("access_token")
             if not token or credentials.needs_daily_refresh:
-                logger.error("Fresh Upstox token required. Please login via Dashboard.")
-                self._update_heartbeat("ERROR_TOKEN_EXPIRED")
+                logger.warning(
+                    "Fresh Upstox token required. Please login via Dashboard. "
+                    "Ingestor will auto-connect once a valid token is saved."
+                )
+                self._update_heartbeat("WAITING_FOR_TOKEN")
                 self._update_websocket_status("DISCONNECTED")
-                # return
+                # Do NOT return -- fall through so the main loop can do a late-connect
+                # once the user logs in via the Dashboard.
             else:
-                upstox_client = UpstoxClient(access_token=token)
-
-                try:
-                    recovery = RecoveryManager(upstox_client, db_manager=self.db_manager)
-                    logger.info("Running initial recovery/backfill...")
-                    recovery.run_recovery(self.symbols)
-                except Exception as e:
-                    logger.warning(f"Recovery failed (non-blocking): {e}")
-
-                # 2. Start Ingestor
-                self.ingestor = WebSocketIngestor(self.symbols, access_token=token, db_manager=self.db_manager)
-                self.ingestor.start()
-                self._update_websocket_status("OPEN")
+                self._try_connect(token)
         else:
             logger.info("Running in MOCK mode (No Upstox connection)")
-        
+
         # 3. Main Loop
         logger.info("Entering main aggregation loop (1.5s frequency).")
-        
+
         # Immediate startup heartbeat
         self.telemetry.publish_health({
             "status": "STARTING",
             "timestamp": datetime.now().isoformat()
         })
-        
-        last_telemetry_ts = 0
+
+        last_telemetry_ts   = 0
+        last_token_check_ts = 0   # throttle: re-check for fresh token every 30s
+
         while self._is_running:
             now = MarketHours.get_ist_now()
-            
+
             # Periodic Telemetry (10s)
             if time.time() - last_telemetry_ts > 10:
                 try:
                     status = "RUNNING" if self.ingestor and self.ingestor.is_running else "IDLE"
                     if mock: status = "MOCK_RUNNING"
-                    
+
                     self.telemetry.publish_health({
                         "status": status,
                         "symbols_count": len(self.symbols),
@@ -226,20 +290,39 @@ class MarketIngestorDaemon:
                     })
                     self.telemetry.publish_log("INFO", f"Heartbeat from market_data_node: {status}")
                 except:
-                    pass 
+                    pass
                 last_telemetry_ts = time.time()
 
             if MarketHours.is_market_open(now):
+                # Late-connect: if WebSocket never started (token was missing at boot),
+                # re-check credentials every 30 s and connect when a fresh token appears.
+                if not mock and (self.ingestor is None) and (time.time() - last_token_check_ts > 30):
+                    last_token_check_ts = time.time()
+                    credentials._load()  # re-read from disk
+                    token = credentials.get("access_token")
+                    if token and not credentials.needs_daily_refresh:
+                        logger.info("Fresh token detected -- performing late-connect.")
+                        try:
+                            self._try_connect(token)
+                        except Exception as e:
+                            logger.error(f"Late-connect failed: {e}")
+
                 self.aggregator.aggregate_outstanding_ticks(self.symbols)
-                self._update_heartbeat("CONNECTED")
-                self._update_websocket_status("OPEN")
-                time.sleep(1.5) 
+                ws_live = self.ingestor is not None and self.ingestor.is_running
+                self._update_heartbeat("CONNECTED" if ws_live else "WAITING_FOR_TOKEN")
+                self._update_websocket_status("OPEN" if ws_live else "DISCONNECTED")
+                time.sleep(1.5)
             else:
                 self.aggregator.aggregate_outstanding_ticks(self.symbols)
                 logger.info("Market closed. Sleeping.")
                 self._update_heartbeat("IDLE (Market Closed)")
                 self._update_websocket_status("CLOSED")
-                time.sleep(60) 
+                if now.date() != self._last_cleanup_date:
+                    self._purge_stale_live_buffer(now.date())
+                for _ in range(60):
+                    if not self._is_running:
+                        break
+                    time.sleep(1)
 
 if __name__ == "__main__":
     daemon = MarketIngestorDaemon()

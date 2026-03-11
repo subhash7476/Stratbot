@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+{% block title %}FTMO Challenge{% endblock %}
+{% block content %}
+<div class="p-6 space-y-6">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-white">FTMO $50K Challenge</h1>
+        <span class="text-xs text-slate-500">NY Liquidity Sweep Model &middot; US100</span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex space-x-1 bg-slate-800/50 rounded-lg p-1" id="tabs">
+        <button onclick="switchTab('import')" data-tab="import" class="tab-btn px-4 py-2 rounded-md text-sm font-medium text-slate-400 hover:text-white transition">Import</button>
+        <button onclick="switchTab('backtest')" data-tab="backtest" class="tab-btn px-4 py-2 rounded-md text-sm font-medium text-slate-400 hover:text-white transition">Backtest</button>
+        <button onclick="switchTab('simulation')" data-tab="simulation" class="tab-btn px-4 py-2 rounded-md text-sm font-medium text-slate-400 hover:text-white transition">Simulation</button>
+        <button onclick="switchTab('dashboard')" data-tab="dashboard" class="tab-btn px-4 py-2 rounded-md text-sm font-medium text-slate-400 hover:text-white transition">Risk Dashboard</button>
+    </div>
+
+    <!-- ═══ TAB: Import ═══ -->
+    <div id="tab-import" class="tab-content hidden">
+        <div class="glass rounded-xl p-6 max-w-xl">
+            <h2 class="text-lg font-semibold text-white mb-4">Import US100 M5 Data</h2>
+            <form id="import-form" class="space-y-4">
+                <div>
+                    <label class="text-xs text-slate-400 uppercase tracking-wider">CSV File (TradingView or MetaTrader)</label>
+                    <input type="file" name="file" accept=".csv" required
+                           class="mt-1 block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 uppercase tracking-wider">Source Timezone</label>
+                    <select name="source_tz" class="mt-1 block w-full bg-slate-800 text-white rounded-lg px-3 py-2 text-sm border border-slate-700">
+                        <option value="UTC">UTC</option>
+                        <option value="US/Eastern">US/Eastern (ET)</option>
+                        <option value="Europe/London">Europe/London (GMT)</option>
+                        <option value="Etc/GMT-2">GMT+2 (MT4 common)</option>
+                        <option value="Etc/GMT-3">GMT+3 (MT4 summer)</option>
+                        <option value="Asia/Kolkata">IST (already converted)</option>
+                    </select>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg transition">
+                    Import Data
+                </button>
+            </form>
+            <div id="import-result" class="mt-4 hidden">
+                <div class="glass rounded-lg p-4">
+                    <p class="text-sm text-slate-300"><span class="text-emerald-400 font-bold" id="import-bars">--</span> bars loaded</p>
+                    <p class="text-xs text-slate-500 mt-1" id="import-range">--</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB: Backtest ═══ -->
+    <div id="tab-backtest" class="tab-content hidden">
+        <div class="flex items-center space-x-4 mb-4">
+            <button onclick="runBacktest()" id="btn-backtest" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-6 rounded-lg transition">
+                Run Backtest
+            </button>
+            <span id="bt-status" class="text-sm text-slate-500">Idle</span>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Trades</p>
+                <p class="text-2xl font-bold text-white" id="bt-trades">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Win Rate</p>
+                <p class="text-2xl font-bold text-white" id="bt-wr">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Expectancy</p>
+                <p class="text-2xl font-bold text-white" id="bt-exp">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Total P&L</p>
+                <p class="text-2xl font-bold" id="bt-pnl">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Profit Factor</p>
+                <p class="text-2xl font-bold text-white" id="bt-pf">--</p>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="glass rounded-xl p-4">
+                <h3 class="text-sm text-slate-400 uppercase tracking-wider mb-3">Equity Curve</h3>
+                <div id="chart-equity" style="height:300px"></div>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <h3 class="text-sm text-slate-400 uppercase tracking-wider mb-3">R-Multiple Distribution</h3>
+                <div id="chart-rdist" style="height:300px"></div>
+            </div>
+        </div>
+
+        <!-- Trade Table -->
+        <div class="glass rounded-xl p-4">
+            <h3 class="text-sm text-slate-400 uppercase tracking-wider mb-3">Trade Log</h3>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs text-slate-500 uppercase border-b border-slate-700">
+                        <tr>
+                            <th class="py-2 px-3">Date</th>
+                            <th class="py-2 px-3">Dir</th>
+                            <th class="py-2 px-3">Entry</th>
+                            <th class="py-2 px-3">Exit</th>
+                            <th class="py-2 px-3">SL</th>
+                            <th class="py-2 px-3">TP</th>
+                            <th class="py-2 px-3">P&L ($)</th>
+                            <th class="py-2 px-3">R</th>
+                            <th class="py-2 px-3">Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trade-table" class="text-slate-300"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB: Simulation ═══ -->
+    <div id="tab-simulation" class="tab-content hidden">
+        <div class="flex items-center space-x-4 mb-4">
+            <button onclick="runSimulation()" id="btn-sim" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-6 rounded-lg transition">
+                Run Rolling Simulations
+            </button>
+            <span id="sim-status" class="text-sm text-slate-500">Idle</span>
+        </div>
+
+        <!-- Pass Rate Hero -->
+        <div class="glass rounded-xl p-6 mb-6 text-center">
+            <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">FTMO Challenge Pass Rate</p>
+            <p class="text-5xl font-bold" id="sim-pass-rate">--</p>
+            <p class="text-xs text-slate-500 mt-2" id="sim-count">-- rolling 30-day windows</p>
+        </div>
+
+        <!-- Sim Summary Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Avg Days to Pass</p>
+                <p class="text-xl font-bold text-white" id="sim-days">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Avg Max DD</p>
+                <p class="text-xl font-bold text-white" id="sim-dd">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Worst Streak</p>
+                <p class="text-xl font-bold text-white" id="sim-streak">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Avg Expectancy</p>
+                <p class="text-xl font-bold text-white" id="sim-exp">--</p>
+            </div>
+        </div>
+
+        <!-- Simulation Table -->
+        <div class="glass rounded-xl p-4">
+            <h3 class="text-sm text-slate-400 uppercase tracking-wider mb-3">Simulation Results</h3>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs text-slate-500 uppercase border-b border-slate-700">
+                        <tr>
+                            <th class="py-2 px-3">Start</th>
+                            <th class="py-2 px-3">End</th>
+                            <th class="py-2 px-3">Result</th>
+                            <th class="py-2 px-3">P&L ($)</th>
+                            <th class="py-2 px-3">Trades</th>
+                            <th class="py-2 px-3">WR%</th>
+                            <th class="py-2 px-3">Max DD%</th>
+                            <th class="py-2 px-3">Days</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sim-table" class="text-slate-300"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB: Risk Dashboard ═══ -->
+    <div id="tab-dashboard" class="tab-content hidden">
+        <!-- Status Hero -->
+        <div class="glass rounded-xl p-8 mb-6 text-center" id="dash-status-card">
+            <p class="text-xs text-slate-400 uppercase tracking-wider mb-2">Risk Status</p>
+            <p class="text-4xl font-bold" id="dash-status">--</p>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Equity</p>
+                <p class="text-2xl font-bold text-white" id="dash-equity">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Total P&L</p>
+                <p class="text-2xl font-bold" id="dash-pnl">--</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Daily P&L</p>
+                <p class="text-2xl font-bold" id="dash-daily-pnl">--</p>
+            </div>
+        </div>
+
+        <!-- Progress Bars -->
+        <div class="space-y-4 mb-6">
+            <div class="glass rounded-xl p-4">
+                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Progress to Target (+$5,000)</span>
+                    <span id="dash-target-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-3">
+                    <div id="dash-target-bar" class="h-3 rounded-full bg-emerald-500 transition-all" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Daily Loss Limit (-$2,500)</span>
+                    <span id="dash-daily-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-3">
+                    <div id="dash-daily-bar" class="h-3 rounded-full bg-red-500 transition-all" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <div class="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>Overall Loss Limit (-$5,000)</span>
+                    <span id="dash-overall-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-3">
+                    <div id="dash-overall-bar" class="h-3 rounded-full bg-red-500 transition-all" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Consecutive Losses</p>
+                <p class="text-2xl font-bold text-white" id="dash-consec">0</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Total Trades</p>
+                <p class="text-2xl font-bold text-white" id="dash-trades">0</p>
+            </div>
+            <div class="glass rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Max Drawdown</p>
+                <p class="text-2xl font-bold text-white" id="dash-maxdd">$0</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ApexCharts -->
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script>
+// ── State ──
+let equityChart = null;
+let rdistChart = null;
+
+// ── Tab Switching ──
+function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.remove('bg-blue-600', 'text-white');
+        el.classList.add('text-slate-400');
+    });
+    document.getElementById('tab-' + tab).classList.remove('hidden');
+    const btn = document.querySelector(`[data-tab="${tab}"]`);
+    btn.classList.add('bg-blue-600', 'text-white');
+    btn.classList.remove('text-slate-400');
+
+    if (tab === 'backtest') loadBacktestData();
+    if (tab === 'simulation') loadSimData();
+    if (tab === 'dashboard') loadDashboard();
+}
+
+// ── Import ──
+document.getElementById('import-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const res = await fetch('/ftmo/api/import', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.success) {
+        document.getElementById('import-result').classList.remove('hidden');
+        document.getElementById('import-bars').textContent = data.bars_loaded.toLocaleString();
+        document.getElementById('import-range').textContent = `${data.date_range.start} → ${data.date_range.end}`;
+    } else {
+        alert('Import failed: ' + data.error);
+    }
+});
+
+// ── Backtest ──
+async function runBacktest() {
+    document.getElementById('btn-backtest').disabled = true;
+    document.getElementById('bt-status').textContent = 'Running...';
+    await fetch('/ftmo/api/backtest', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+    pollBacktest();
+}
+
+function pollBacktest() {
+    const iv = setInterval(async () => {
+        const res = await fetch('/ftmo/api/backtest/status');
+        const d = await res.json();
+        document.getElementById('bt-status').textContent = d.status;
+        if (d.status !== 'running') {
+            clearInterval(iv);
+            document.getElementById('btn-backtest').disabled = false;
+            if (d.status === 'completed') loadBacktestData();
+            if (d.status === 'failed') alert('Backtest failed: ' + d.error);
+        }
+    }, 1000);
+}
+
+async function loadBacktestData() {
+    const [aRes, eRes, tRes] = await Promise.all([
+        fetch('/ftmo/api/analytics').then(r => r.json()),
+        fetch('/ftmo/api/equity-curve').then(r => r.json()),
+        fetch('/ftmo/api/trades').then(r => r.json()),
+    ]);
+
+    const a = aRes.analytics || {};
+    setText('bt-trades', a.total_trades || '--');
+    setText('bt-wr', a.win_rate_pct != null ? a.win_rate_pct + '%' : '--');
+    setText('bt-exp', a.expectancy != null ? a.expectancy.toFixed(3) : '--');
+    const pnl = a.total_pnl_dollar;
+    const pnlEl = document.getElementById('bt-pnl');
+    pnlEl.textContent = pnl != null ? '$' + pnl.toLocaleString() : '--';
+    pnlEl.className = 'text-2xl font-bold ' + (pnl >= 0 ? 'text-emerald-400' : 'text-red-400');
+    setText('bt-pf', a.profit_factor || '--');
+
+    // Equity Chart
+    if (eRes.data && eRes.data.length > 1) {
+        const series = eRes.data.map(p => ({ x: p.timestamp, y: p.equity }));
+        const opts = {
+            chart: { type: 'area', height: 300, background: 'transparent', toolbar: { show: false } },
+            series: [{ name: 'Equity', data: series }],
+            colors: ['#10b981'],
+            fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05 } },
+            stroke: { width: 2, curve: 'smooth' },
+            xaxis: { type: 'category', labels: { show: false } },
+            yaxis: { labels: { style: { colors: '#94a3b8' }, formatter: v => '$' + Math.round(v).toLocaleString() } },
+            grid: { borderColor: '#1e293b' },
+            tooltip: { theme: 'dark' },
+            annotations: { yaxis: [
+                { y: 55000, borderColor: '#10b981', strokeDashArray: 4, label: { text: 'Target $55K', style: { color: '#10b981', background: 'transparent' } } },
+                { y: 45000, borderColor: '#ef4444', strokeDashArray: 4, label: { text: 'Limit $45K', style: { color: '#ef4444', background: 'transparent' } } },
+            ]},
+        };
+        if (equityChart) equityChart.destroy();
+        equityChart = new ApexCharts(document.getElementById('chart-equity'), opts);
+        equityChart.render();
+    }
+
+    // R-Distribution
+    if (a.r_distribution && a.r_distribution.length) {
+        const bins = {};
+        a.r_distribution.forEach(r => {
+            const key = r >= 0 ? Math.floor(r * 2) / 2 : Math.ceil(r * 2) / 2;
+            const label = key.toFixed(1) + 'R';
+            bins[label] = (bins[label] || 0) + 1;
+        });
+        const labels = Object.keys(bins).sort((a,b) => parseFloat(a) - parseFloat(b));
+        const values = labels.map(l => bins[l]);
+        const colors = labels.map(l => parseFloat(l) >= 0 ? '#10b981' : '#ef4444');
+
+        const opts = {
+            chart: { type: 'bar', height: 300, background: 'transparent', toolbar: { show: false } },
+            series: [{ name: 'Count', data: values }],
+            xaxis: { categories: labels, labels: { style: { colors: '#94a3b8' } } },
+            yaxis: { labels: { style: { colors: '#94a3b8' } } },
+            colors: ['#3b82f6'],
+            plotOptions: { bar: { distributed: true, borderRadius: 4 } },
+            grid: { borderColor: '#1e293b' },
+            tooltip: { theme: 'dark' },
+            legend: { show: false },
+        };
+        // Override colors per bar
+        opts.colors = colors;
+        if (rdistChart) rdistChart.destroy();
+        rdistChart = new ApexCharts(document.getElementById('chart-rdist'), opts);
+        rdistChart.render();
+    }
+
+    // Trade Table
+    const tbody = document.getElementById('trade-table');
+    tbody.innerHTML = (tRes.trades || []).map(t => `
+        <tr class="border-b border-slate-800 hover:bg-slate-800/30">
+            <td class="py-2 px-3 text-xs">${t.session_date}</td>
+            <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-xs font-medium ${t.direction === 'LONG' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-red-900/50 text-red-400'}">${t.direction}</span></td>
+            <td class="py-2 px-3">${Number(t.entry_price).toFixed(1)}</td>
+            <td class="py-2 px-3">${Number(t.exit_price).toFixed(1)}</td>
+            <td class="py-2 px-3 text-red-400">${Number(t.stop_loss).toFixed(1)}</td>
+            <td class="py-2 px-3 text-emerald-400">${Number(t.take_profit).toFixed(1)}</td>
+            <td class="py-2 px-3 font-medium ${t.pnl_dollar >= 0 ? 'text-emerald-400' : 'text-red-400'}">$${Number(t.pnl_dollar).toFixed(0)}</td>
+            <td class="py-2 px-3 font-medium ${t.pnl_r >= 0 ? 'text-emerald-400' : 'text-red-400'}">${Number(t.pnl_r).toFixed(1)}R</td>
+            <td class="py-2 px-3 text-xs text-slate-500">${t.exit_reason}</td>
+        </tr>
+    `).join('');
+}
+
+// ── Simulation ──
+async function runSimulation() {
+    document.getElementById('btn-sim').disabled = true;
+    document.getElementById('sim-status').textContent = 'Running...';
+    await fetch('/ftmo/api/simulate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+    pollSim();
+}
+
+function pollSim() {
+    const iv = setInterval(async () => {
+        const res = await fetch('/ftmo/api/simulate/status');
+        const d = await res.json();
+        document.getElementById('sim-status').textContent = d.status;
+        if (d.status !== 'running') {
+            clearInterval(iv);
+            document.getElementById('btn-sim').disabled = false;
+            if (d.status === 'completed') loadSimData();
+            if (d.status === 'failed') alert('Simulation failed: ' + d.error);
+        }
+    }, 1000);
+}
+
+async function loadSimData() {
+    const [sumRes, simRes] = await Promise.all([
+        fetch('/ftmo/api/simulation-summary').then(r => r.json()),
+        fetch('/ftmo/api/simulations').then(r => r.json()),
+    ]);
+
+    const s = sumRes.summary || {};
+    const rate = s.pass_rate_pct;
+    const rateEl = document.getElementById('sim-pass-rate');
+    rateEl.textContent = rate != null ? rate + '%' : '--';
+    rateEl.className = 'text-5xl font-bold ' + (rate >= 65 ? 'text-emerald-400' : rate >= 40 ? 'text-yellow-400' : 'text-red-400');
+
+    setText('sim-count', s.total_simulations ? s.total_simulations + ' rolling 30-day windows' : '--');
+    setText('sim-days', s.avg_days_to_pass || '--');
+    setText('sim-dd', s.avg_max_drawdown_pct != null ? s.avg_max_drawdown_pct + '%' : '--');
+    setText('sim-streak', s.worst_losing_streak || '--');
+    setText('sim-exp', s.avg_expectancy != null ? s.avg_expectancy.toFixed(3) : '--');
+
+    // Sim Table
+    const tbody = document.getElementById('sim-table');
+    tbody.innerHTML = (simRes.simulations || []).map(s => `
+        <tr class="border-b border-slate-800 hover:bg-slate-800/30">
+            <td class="py-2 px-3 text-xs">${s.start_date}</td>
+            <td class="py-2 px-3 text-xs">${s.end_date}</td>
+            <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-xs font-bold ${s.passed ? 'bg-emerald-900/50 text-emerald-400' : 'bg-red-900/50 text-red-400'}">${s.passed ? 'PASS' : 'FAIL'}</span></td>
+            <td class="py-2 px-3 font-medium ${s.total_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}">$${Number(s.total_pnl).toFixed(0)}</td>
+            <td class="py-2 px-3">${s.total_trades}</td>
+            <td class="py-2 px-3">${Number(s.win_rate).toFixed(0)}%</td>
+            <td class="py-2 px-3">${Number(s.max_drawdown_pct).toFixed(1)}%</td>
+            <td class="py-2 px-3">${s.days_to_target || '-'}</td>
+        </tr>
+    `).join('');
+}
+
+// ── Dashboard ──
+async function loadDashboard() {
+    const res = await fetch('/ftmo/api/dashboard');
+    const d = (await res.json()).state;
+    if (!d) return;
+
+    // Status
+    const statusEl = document.getElementById('dash-status');
+    statusEl.textContent = d.risk_status;
+    const card = document.getElementById('dash-status-card');
+    card.className = 'glass rounded-xl p-8 mb-6 text-center ' + ({
+        GREEN: 'border border-emerald-500/30', CAUTION: 'border border-yellow-500/30', STOP: 'border border-red-500/30'
+    }[d.risk_status] || '');
+    statusEl.className = 'text-4xl font-bold ' + ({
+        GREEN: 'text-emerald-400', CAUTION: 'text-yellow-400', STOP: 'text-red-400'
+    }[d.risk_status] || 'text-white');
+
+    // Stats
+    setText('dash-equity', '$' + Number(d.equity).toLocaleString());
+    const pnlEl = document.getElementById('dash-pnl');
+    pnlEl.textContent = '$' + Number(d.total_pnl).toLocaleString();
+    pnlEl.className = 'text-2xl font-bold ' + (d.total_pnl >= 0 ? 'text-emerald-400' : 'text-red-400');
+    const dpEl = document.getElementById('dash-daily-pnl');
+    dpEl.textContent = '$' + Number(d.daily_pnl).toLocaleString();
+    dpEl.className = 'text-2xl font-bold ' + (d.daily_pnl >= 0 ? 'text-emerald-400' : 'text-red-400');
+
+    // Progress bars
+    const targetPct = Math.max(0, Math.min(100, d.pct_to_target));
+    setText('dash-target-pct', targetPct.toFixed(1) + '%');
+    document.getElementById('dash-target-bar').style.width = targetPct + '%';
+
+    const dailyPct = Math.max(0, Math.min(100, d.pct_to_daily_limit));
+    setText('dash-daily-pct', dailyPct.toFixed(1) + '%');
+    document.getElementById('dash-daily-bar').style.width = dailyPct + '%';
+
+    const overallPct = Math.max(0, Math.min(100, d.pct_to_overall_limit));
+    setText('dash-overall-pct', overallPct.toFixed(1) + '%');
+    document.getElementById('dash-overall-bar').style.width = overallPct + '%';
+
+    setText('dash-consec', d.consecutive_losses);
+    setText('dash-trades', d.total_trades);
+    setText('dash-maxdd', '$' + Number(d.max_drawdown).toFixed(0));
+}
+
+// ── Utilities ──
+function setText(id, val) { document.getElementById(id).textContent = val; }
+
+// ── Init ──
+switchTab('import');
+</script>
+{% endblock %}

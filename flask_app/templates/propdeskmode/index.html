@@ -1,0 +1,597 @@
+{% extends "base.html" %}
+
+{% block title %}Prop Desk — Volatility Control Board{% endblock %}
+{% block breadcrumb %}Prop Desk / Multi-Underlying Volatility Board{% endblock %}
+
+{% block head %}
+<style>
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    .tile          { @apply glass rounded-2xl p-5 flex flex-col gap-4; }
+    .tile-inactive { @apply glass rounded-2xl p-5 flex flex-col items-center justify-center min-h-64 opacity-40; }
+    .metric-label  { @apply text-[10px] uppercase tracking-widest text-slate-500; }
+    .metric-val    { @apply text-sm font-bold text-white; }
+    .greek-row     { @apply flex justify-between items-center py-1 border-b border-slate-700/40 last:border-0; }
+
+    /* ── State badges ────────────────────────────────────────────────── */
+    .badge-idle       { @apply bg-slate-700 text-slate-300; }
+    .badge-awaiting   { @apply bg-yellow-900/60 text-yellow-300; }
+    .badge-positioned { @apply bg-blue-900/60 text-blue-300; }
+    .badge-done       { @apply bg-emerald-900/60 text-emerald-300; }
+    .badge-inactive   { @apply bg-slate-800 text-slate-500; }
+
+    /* ── Clustered risk ─────────────────────────────────────────────── */
+    .risk-low      { @apply bg-emerald-900/50 text-emerald-300 border border-emerald-700/40; }
+    .risk-moderate { @apply bg-yellow-900/50  text-yellow-300  border border-yellow-700/40; }
+    .risk-high     { @apply bg-red-900/50     text-red-300     border border-red-700/40 animate-pulse; }
+
+    /* ── Progress bars ──────────────────────────────────────────────── */
+    .pbar-wrap { @apply w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden; }
+    .pbar-fill { height: 100%; border-radius: 9999px; transition: width 0.4s ease; }
+
+    /* ── Kill switch ─────────────────────────────────────────────────── */
+    .kill-btn {
+        @apply px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-widest
+               transition-all duration-200 border;
+    }
+    .kill-btn-armed  { @apply bg-red-600/20 hover:bg-red-600/40 text-red-400 border-red-600/50; }
+    .kill-btn-disarmed { @apply bg-slate-700/40 text-slate-500 border-slate-600/30 cursor-not-allowed; }
+
+    /* ── Corr panel ─────────────────────────────────────────────────── */
+    .corr-neutral { color: #94a3b8; }
+    .corr-amber   { color: #f59e0b; }
+    .corr-red     { color: #ef4444; }
+
+    /* ── PnL colours ────────────────────────────────────────────────── */
+    .pnl-pos { color: #10b981; }
+    .pnl-neg { color: #ef4444; }
+    .pnl-zero { color: #94a3b8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-5" id="desk-root">
+
+    <!-- ═══ HEADER BAR ═══════════════════════════════════════════════════ -->
+    <div class="glass rounded-2xl px-6 py-4 flex flex-col md:flex-row md:items-center gap-4">
+        <!-- Title -->
+        <div class="flex-1">
+            <h1 class="text-xl font-bold text-white flex items-center gap-2">
+                <i class="fas fa-briefcase text-indigo-400"></i>
+                Prop Desk
+            </h1>
+            <p class="text-xs text-slate-500 mt-0.5">Multi-underlying volatility control board · paper mode</p>
+        </div>
+
+        <!-- Global Greeks strip -->
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <div>
+                <span class="metric-label block">Portfolio Δ</span>
+                <span id="g-delta" class="font-bold text-white">—</span>
+            </div>
+            <div>
+                <span class="metric-label block">Portfolio Θ/day</span>
+                <span id="g-theta" class="font-bold text-emerald-400">—</span>
+            </div>
+            <div>
+                <span class="metric-label block">Portfolio ν</span>
+                <span id="g-vega" class="font-bold text-rose-400">—</span>
+            </div>
+            <div>
+                <span class="metric-label block">Today PnL</span>
+                <span id="g-pnl" class="font-bold">—</span>
+            </div>
+            <div>
+                <span class="metric-label block">Clustered Risk</span>
+                <span id="g-cluster" class="px-2 py-0.5 rounded-full text-xs font-bold">—</span>
+            </div>
+        </div>
+
+        <!-- Stress box -->
+        <div class="bg-slate-800/60 rounded-xl px-4 py-3 text-xs space-y-1 min-w-48">
+            <p class="metric-label mb-1">Stress (delta approx.)</p>
+            <div class="flex justify-between gap-4">
+                <span class="text-slate-400">1% move</span>
+                <span id="g-stress1" class="font-mono text-slate-300">—</span>
+            </div>
+            <div class="flex justify-between gap-4">
+                <span class="text-slate-400">2% move</span>
+                <span id="g-stress2" class="font-mono text-slate-300">—</span>
+            </div>
+        </div>
+
+        <!-- Kill switch -->
+        <button id="kill-btn" onclick="killSwitch()"
+                class="kill-btn kill-btn-disarmed" disabled>
+            <i class="fas fa-power-off mr-1.5"></i>Kill Switch
+        </button>
+    </div>
+
+    <!-- ═══ TILE GRID ════════════════════════════════════════════════════ -->
+    <div id="tile-grid" class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <!-- Tiles injected by JS -->
+        <div class="tile-inactive" id="tile-loading">
+            <i class="fas fa-circle-notch fa-spin text-slate-600 text-2xl mb-2"></i>
+            <span class="text-slate-600 text-sm">Loading portfolio…</span>
+        </div>
+    </div>
+
+    <!-- ═══ BOTTOM BAR ═══════════════════════════════════════════════════ -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        <!-- Correlation panel -->
+        <div class="glass rounded-2xl p-5">
+            <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <i class="fas fa-link text-slate-400"></i>
+                Cross-Underlying Correlation
+            </h3>
+            <div id="corr-panel">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs text-slate-400">NF / BN 5-day log-return</span>
+                    <span id="corr-nf-bn" class="text-2xl font-bold font-mono corr-neutral">—</span>
+                </div>
+                <div id="corr-bar-wrap" class="pbar-wrap mb-3">
+                    <div id="corr-bar" class="pbar-fill bg-slate-500" style="width:0%"></div>
+                </div>
+                <div id="corr-warning" class="hidden text-xs text-red-400 flex items-center gap-1.5">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    High correlation — correlated short-vol is disguised leverage
+                </div>
+                <div id="corr-amber-msg" class="hidden text-xs text-yellow-400 flex items-center gap-1.5">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Elevated correlation — monitor cross-underlying risk
+                </div>
+                <p id="corr-days" class="text-[10px] text-slate-600 mt-2">Days used: —</p>
+            </div>
+        </div>
+
+        <!-- Global Greeks aggregator -->
+        <div class="glass rounded-2xl p-5">
+            <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <i class="fas fa-calculator text-slate-400"></i>
+                Portfolio Greeks
+            </h3>
+            <div class="space-y-2">
+                <div class="greek-row">
+                    <span class="text-xs text-slate-400">Delta (net)</span>
+                    <span id="agg-delta" class="text-sm font-mono text-white">—</span>
+                </div>
+                <div class="greek-row">
+                    <span class="text-xs text-slate-400">Theta / day (income)</span>
+                    <span id="agg-theta" class="text-sm font-mono text-emerald-400">—</span>
+                </div>
+                <div class="greek-row">
+                    <span class="text-xs text-slate-400">Vega (short vol exposure)</span>
+                    <span id="agg-vega" class="text-sm font-mono text-rose-400">—</span>
+                </div>
+                <div class="greek-row">
+                    <span class="text-xs text-slate-400">Gamma (net)</span>
+                    <span id="agg-gamma" class="text-sm font-mono text-orange-400">—</span>
+                </div>
+                <div class="greek-row">
+                    <span class="text-xs text-slate-400">Delta Notional (₹)</span>
+                    <span id="agg-delta-notional" class="text-sm font-mono text-white">—</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flash message -->
+    <div id="flash-msg" class="hidden fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl text-sm font-medium shadow-xl"></div>
+
+</div><!-- /desk-root -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// Black-76 (JS) — for canvas payoff chart
+// ════════════════════════════════════════════════════════════════════════════
+const SQRT2PI = Math.sqrt(2 * Math.PI);
+
+function normCDF(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+    const result = 1 - (1 / SQRT2PI) * Math.exp(-0.5 * x * x) * poly;
+    return x >= 0 ? result : 1 - result;
+}
+
+function b76Price(F, K, T, r, sigma, type) {
+    if (T <= 0 || sigma <= 0) {
+        const intrinsic = type === 'CE' ? Math.max(F - K, 0) : Math.max(K - F, 0);
+        return Math.max(intrinsic, 0.05);
+    }
+    const sqrtT = Math.sqrt(T);
+    const d1 = (Math.log(F / K) + 0.5 * sigma * sigma * T) / (sigma * sqrtT);
+    const d2 = d1 - sigma * sqrtT;
+    const df = Math.exp(-r * T);
+    if (type === 'CE') return df * (F * normCDF(d1) - K * normCDF(d2));
+    return df * (K * normCDF(-d2) - F * normCDF(-d1));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Canvas payoff chart
+// ════════════════════════════════════════════════════════════════════════════
+function drawPayoff(canvas, K, entryPrem, lots, lotSize, ttm, iv, r, currentSpot) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const range = 400;
+    const steps = 120;
+    const sMin  = K - range, sMax = K + range;
+    const qty   = lots * lotSize;
+
+    const pnlAt = s => (entryPrem - b76Price(s, K, ttm, r, iv, 'CE') - b76Price(s, K, ttm, r, iv, 'PE')) * qty;
+
+    const points = [];
+    for (let i = 0; i <= steps; i++) {
+        const s = sMin + (sMax - sMin) * i / steps;
+        points.push({ s, p: pnlAt(s) });
+    }
+
+    const maxP = Math.max(...points.map(p => p.p));
+    const minP = Math.min(...points.map(p => p.p));
+    const pad  = 12;
+    const pRange = Math.max(Math.abs(maxP), Math.abs(minP), 1000);
+
+    const toX = s => pad + (s - sMin) / (sMax - sMin) * (W - 2 * pad);
+    const toY = p => pad + (1 - (p + pRange) / (2 * pRange)) * (H - 2 * pad);
+    const zeroY = toY(0);
+
+    // Fill areas
+    ctx.beginPath();
+    points.forEach((pt, i) => {
+        const x = toX(pt.s), y = toY(pt.p);
+        i === 0 ? ctx.moveTo(x, Math.min(y, zeroY)) : ctx.lineTo(x, Math.min(y, zeroY));
+    });
+    ctx.lineTo(toX(sMax), zeroY);
+    ctx.lineTo(toX(sMin), zeroY);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(16,185,129,0.12)';
+    ctx.fill();
+
+    ctx.beginPath();
+    points.forEach((pt, i) => {
+        const x = toX(pt.s), y = toY(pt.p);
+        i === 0 ? ctx.moveTo(x, Math.max(y, zeroY)) : ctx.lineTo(x, Math.max(y, zeroY));
+    });
+    ctx.lineTo(toX(sMax), zeroY);
+    ctx.lineTo(toX(sMin), zeroY);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(239,68,68,0.12)';
+    ctx.fill();
+
+    // Zero line
+    ctx.beginPath();
+    ctx.moveTo(pad, zeroY); ctx.lineTo(W - pad, zeroY);
+    ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+    ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    ctx.stroke(); ctx.setLineDash([]);
+
+    // PnL curve
+    ctx.beginPath();
+    points.forEach((pt, i) => {
+        const x = toX(pt.s), y = toY(pt.p);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Current spot line
+    if (currentSpot >= sMin && currentSpot <= sMax) {
+        const cx = toX(currentSpot);
+        ctx.beginPath(); ctx.moveTo(cx, pad); ctx.lineTo(cx, H - pad);
+        ctx.strokeStyle = 'rgba(251,191,36,0.7)';
+        ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+        ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    // Strike marker
+    const kx = toX(K);
+    ctx.beginPath(); ctx.moveTo(kx, H - pad - 8); ctx.lineTo(kx, H - pad);
+    ctx.strokeStyle = 'rgba(100,116,139,0.5)'; ctx.lineWidth = 1.5;
+    ctx.stroke();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DTE badge class
+// ════════════════════════════════════════════════════════════════════════════
+function dteBadgeClass(dte) {
+    if (dte >= 4) return 'bg-emerald-900/60 text-emerald-300';
+    if (dte === 3) return 'bg-yellow-900/60  text-yellow-300';
+    if (dte === 2) return 'bg-orange-900/60  text-orange-300';
+    return 'bg-red-900/60 text-red-300 animate-pulse';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Formatting helpers
+// ════════════════════════════════════════════════════════════════════════════
+const fmt  = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
+const fmtR = v => v == null ? '—' : (v >= 0 ? '+' : '') + Math.round(v).toLocaleString('en-IN');
+const fmtPct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+
+function pnlClass(v) {
+    if (v == null) return '';
+    return v > 0 ? 'pnl-pos' : v < 0 ? 'pnl-neg' : 'pnl-zero';
+}
+
+function stateClass(state) {
+    const map = { IDLE: 'badge-idle', AWAITING_ENTRY: 'badge-awaiting',
+                  POSITIONED: 'badge-positioned', DONE: 'badge-done', INACTIVE: 'badge-inactive' };
+    return map[state] || 'badge-idle';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tile HTML builder
+// ════════════════════════════════════════════════════════════════════════════
+function buildTileHtml(u) {
+    const sc = stateClass(u.state);
+    const stateBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest ${sc}">${u.state}</span>`;
+
+    if (u.state === 'INACTIVE') {
+        return `<div class="tile-inactive">
+            <p class="text-slate-500 text-sm font-medium mb-1">${u.name}</p>
+            ${stateBadge}
+            <p class="text-xs text-slate-600 mt-2">Strategy not implemented</p>
+        </div>`;
+    }
+
+    const isPositioned = u.state === 'POSITIONED';
+
+    // Header
+    let html = `<div class="tile" id="tile-${u.id}">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-xs font-bold text-slate-300 tracking-widest">${u.name}</p>
+                ${u.day_type ? `<p class="text-[10px] text-slate-500 mt-0.5">${u.day_type}${u.confidence != null ? ' · ' + fmtPct(u.confidence) : ''}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-2">
+                ${isPositioned && u.dte != null ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${dteBadgeClass(u.dte)}">DTE ${u.dte}</span>` : ''}
+                ${stateBadge}
+            </div>
+        </div>`;
+
+    if (!isPositioned) {
+        // Not positioned — show minimal state info
+        html += `<div class="flex-1 flex items-center justify-center py-6">
+            <p class="text-xs text-slate-500">${u.vix_close != null ? 'VIX ' + fmt(u.vix_close, 1) : 'Waiting for session…'}</p>
+        </div>`;
+        html += `</div>`;
+        return html;
+    }
+
+    // Canvas payoff chart
+    html += `<canvas id="payoff-${u.id}" width="340" height="120"
+        class="w-full rounded-lg bg-slate-800/40" style="max-height:120px;"></canvas>`;
+
+    // Strike + premium summary
+    html += `<div class="grid grid-cols-3 gap-2 text-center">
+        <div class="bg-slate-800/50 rounded-lg p-2">
+            <p class="metric-label mb-0.5">CE Entry</p>
+            <p class="text-xs font-bold text-emerald-400">${fmt(u.ce_entry)}</p>
+            <p class="text-[10px] text-slate-500">now ${fmt(u.ce_current)}</p>
+        </div>
+        <div class="bg-slate-800/50 rounded-lg p-2">
+            <p class="metric-label mb-0.5">Strike / Spot</p>
+            <p class="text-xs font-bold text-white">${u.ce_strike?.toLocaleString('en-IN')}</p>
+            <p class="text-[10px] text-slate-400">${u.current_spot != null ? Math.round(u.current_spot).toLocaleString('en-IN') : '—'}</p>
+        </div>
+        <div class="bg-slate-800/50 rounded-lg p-2">
+            <p class="metric-label mb-0.5">PE Entry</p>
+            <p class="text-xs font-bold text-rose-400">${fmt(u.pe_entry)}</p>
+            <p class="text-[10px] text-slate-500">now ${fmt(u.pe_current)}</p>
+        </div>
+    </div>`;
+
+    // Greeks table
+    const dCls = Math.abs(u.net_delta || 0) > 100 ? 'text-yellow-400' : 'text-white';
+    const vCls = 'text-rose-400';
+    const tCls = 'text-emerald-400';
+    const gCls = Math.abs(u.net_gamma || 0) > 0.01 ? 'text-orange-400' : 'text-slate-300';
+    html += `<div class="space-y-1">
+        <div class="greek-row"><span class="metric-label">Delta (net)</span>   <span class="text-xs font-mono ${dCls}">${fmt(u.net_delta)}</span></div>
+        <div class="greek-row"><span class="metric-label">Theta / day</span>   <span class="text-xs font-mono ${tCls}">+${fmt(Math.abs(u.net_theta))}</span></div>
+        <div class="greek-row"><span class="metric-label">Vega</span>          <span class="text-xs font-mono ${vCls}">${fmt(u.net_vega)}</span></div>
+        <div class="greek-row"><span class="metric-label">Gamma</span>         <span class="text-xs font-mono ${gCls}">${fmt(u.net_gamma, 4)}</span></div>
+    </div>`;
+
+    // Risk progress bars
+    const profitPct  = u.total_premium_entry ? (u.total_premium_entry - u.total_premium_current) / u.total_premium_entry : 0;
+    const targetPct  = u.profit_target_pct || 0.5;
+    const stopPct    = (u.stop_loss_mult || 2.0) * u.total_premium_entry;
+
+    const profitFill = Math.min(Math.max(profitPct / targetPct, 0), 1) * 100;
+    const lossRatio  = u.pnl_gross_rs < 0 ? Math.min(Math.abs(u.pnl_gross_rs) / (stopPct * 75 * u.lots || 1), 1) : 0;
+    const lossFill   = lossRatio * 100;
+
+    const pnlCls = (u.pnl_gross_rs || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+    html += `<div class="space-y-2">
+        <div>
+            <div class="flex justify-between mb-1">
+                <span class="metric-label">Profit progress → ${fmtPct(targetPct)} target</span>
+                <span class="text-[10px] font-mono ${pnlCls}">${fmtPct(profitPct)}</span>
+            </div>
+            <div class="pbar-wrap"><div class="pbar-fill bg-emerald-500" style="width:${profitFill.toFixed(1)}%"></div></div>
+        </div>
+        <div>
+            <div class="flex justify-between mb-1">
+                <span class="metric-label">Loss exposure → ${u.stop_loss_mult}× stop</span>
+                <span class="text-[10px] font-mono ${pnlCls}">${fmtR(u.pnl_gross_rs)}</span>
+            </div>
+            <div class="pbar-wrap"><div class="pbar-fill bg-red-500/70" style="width:${lossFill.toFixed(1)}%"></div></div>
+        </div>
+    </div>`;
+
+    // Expiry + lots footer
+    html += `<div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-700/40">
+        <span>Expiry ${u.expiry || '—'} · ${u.lots} lot${u.lots !== 1 ? 's' : ''} × ${u.lot_size}</span>
+        <span>VIX ${fmt(u.vix_close, 1)} · IV ${fmtPct(u.iv)}</span>
+    </div>`;
+
+    html += `</div>`;
+    return html;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Portfolio data load + render
+// ════════════════════════════════════════════════════════════════════════════
+let _portfolioData = null;
+let _hasPositioned = false;
+
+async function loadPortfolio() {
+    try {
+        const res  = await fetch('/prop-desk/api/portfolio');
+        const data = await res.json();
+        _portfolioData = data;
+
+        const g = data.global || {};
+        const underlyings = data.underlyings || [];
+
+        // Kill switch — arm only if any positioned
+        _hasPositioned = underlyings.some(u => u.state === 'POSITIONED');
+        const killBtn = document.getElementById('kill-btn');
+        if (_hasPositioned) {
+            killBtn.disabled = false;
+            killBtn.className = 'kill-btn kill-btn-armed';
+        } else {
+            killBtn.disabled = true;
+            killBtn.className = 'kill-btn kill-btn-disarmed';
+        }
+
+        // Global bar
+        const gDelta = g.total_delta ?? null;
+        const dEl = document.getElementById('g-delta');
+        dEl.textContent = fmt(gDelta);
+        dEl.className = 'font-bold ' + (Math.abs(gDelta || 0) > 100 ? 'text-yellow-400' : 'text-white');
+
+        document.getElementById('g-theta').textContent  = g.total_theta != null ? '+' + fmt(Math.abs(g.total_theta)) : '—';
+        document.getElementById('g-vega').textContent   = fmt(g.total_vega);
+        const pnlEl = document.getElementById('g-pnl');
+        pnlEl.textContent = fmtR(g.total_pnl_today);
+        pnlEl.className   = 'font-bold ' + pnlClass(g.total_pnl_today);
+
+        const cEl = document.getElementById('g-cluster');
+        const cr  = g.clustered_risk || 'LOW';
+        cEl.textContent = cr;
+        cEl.className = 'px-2 py-0.5 rounded-full text-xs font-bold ' +
+            (cr === 'HIGH' ? 'risk-high' : cr === 'MODERATE' ? 'risk-moderate' : 'risk-low');
+
+        document.getElementById('g-stress1').textContent = g.stress_1pct != null ? fmtR(g.stress_1pct) : '—';
+        document.getElementById('g-stress2').textContent = g.stress_2pct != null ? fmtR(g.stress_2pct) : '—';
+
+        // Portfolio Greeks aggregator
+        document.getElementById('agg-delta').textContent = fmt(g.total_delta);
+        document.getElementById('agg-theta').textContent = g.total_theta != null ? '+' + fmt(Math.abs(g.total_theta)) : '—';
+        document.getElementById('agg-vega').textContent  = fmt(g.total_vega);
+        document.getElementById('agg-gamma').textContent = fmt(g.total_gamma, 4);
+        const niftyTile = underlyings.find(u => u.id === 'nifty');
+        const dn = niftyTile ? niftyTile.delta_notional : null;
+        document.getElementById('agg-delta-notional').textContent = dn != null ? fmtR(dn) : '—';
+
+        // Tile grid
+        const grid = document.getElementById('tile-grid');
+        grid.innerHTML = underlyings.map(buildTileHtml).join('');
+
+        // Draw canvases for positioned tiles
+        underlyings.forEach(u => {
+            if (u.state === 'POSITIONED') {
+                const canvas = document.getElementById(`payoff-${u.id}`);
+                if (canvas) {
+                    drawPayoff(
+                        canvas,
+                        u.ce_strike,
+                        u.total_premium_entry,
+                        u.lots,
+                        u.lot_size,
+                        u.ttm,
+                        u.iv,
+                        0.065,
+                        u.current_spot
+                    );
+                }
+            }
+        });
+
+    } catch (e) {
+        console.error('loadPortfolio error:', e);
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Correlation load + render
+// ════════════════════════════════════════════════════════════════════════════
+async function loadCorrelation() {
+    try {
+        const res  = await fetch('/prop-desk/api/correlation');
+        const data = await res.json();
+        const c = data.nf_bn;
+        const el = document.getElementById('corr-nf-bn');
+        if (c == null) {
+            el.textContent = 'N/A';
+            el.className = 'text-2xl font-bold font-mono corr-neutral';
+        } else {
+            el.textContent = c.toFixed(3);
+            el.className = 'text-2xl font-bold font-mono ' +
+                (data.warning ? 'corr-red' : data.amber ? 'corr-amber' : 'corr-neutral');
+        }
+
+        // Bar fill = abs(corr) * 100
+        const fill = Math.min(Math.abs(c || 0) * 100, 100).toFixed(1);
+        const barEl = document.getElementById('corr-bar');
+        barEl.style.width = fill + '%';
+        barEl.className = 'pbar-fill ' + (data.warning ? 'bg-red-500' : data.amber ? 'bg-yellow-500' : 'bg-slate-500');
+
+        document.getElementById('corr-warning').classList.toggle('hidden',   !data.warning);
+        document.getElementById('corr-amber-msg').classList.toggle('hidden', !data.amber);
+        document.getElementById('corr-days').textContent = `Days used: ${data.days_used ?? '—'}`;
+    } catch (e) {
+        console.error('loadCorrelation error:', e);
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Kill switch
+// ════════════════════════════════════════════════════════════════════════════
+async function killSwitch() {
+    if (!_hasPositioned) return;
+    if (!confirm('CLOSE ALL STRADDLES — this cannot be undone. Proceed?')) return;
+    try {
+        const res  = await fetch('/prop-desk/api/kill-switch', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ confirm: true }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showFlash('Position closed — emergency exit recorded', 'success');
+        } else {
+            showFlash('Kill switch failed: ' + (data.error || 'unknown'), 'error');
+        }
+        await loadPortfolio();
+    } catch (e) {
+        showFlash('Kill switch error: ' + e.message, 'error');
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Flash helper
+// ════════════════════════════════════════════════════════════════════════════
+function showFlash(msg, type) {
+    const el = document.getElementById('flash-msg');
+    el.textContent = msg;
+    el.className = 'fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl text-sm font-medium shadow-xl ' +
+        (type === 'success' ? 'bg-emerald-700 text-white' : 'bg-red-700 text-white');
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Boot + auto-refresh
+// ════════════════════════════════════════════════════════════════════════════
+loadPortfolio();
+loadCorrelation();
+setInterval(loadPortfolio,   15_000);
+setInterval(loadCorrelation, 300_000);
+</script>
+{% endblock %}

@@ -40,6 +40,9 @@ from ops.session_log import SessionLogger
 from scripts.market_ingestor import MarketIngestorDaemon
 from flask_app import create_app
 from core.logging import setup_logger
+from core.analytics.capture import CaptureEngine
+from core.analytics.metrics_service import StructuralMetricsService
+from core.analytics.diagnostic_engine import DiagnosticsEngine
 
 logger = setup_logger("unified_live_runner")
 
@@ -113,13 +116,24 @@ def main():
         broker = UpstoxAdapter(api_key, api_secret, access_token, clock)
         exec_mode = ExecutionMode.LIVE
 
-    # 6. Initialize Execution Handler
+    # 6. Initialize TLP V1 Services
+    metrics_service = StructuralMetricsService(db_manager)
+    capture_engine = CaptureEngine(db_manager, metrics_service)
+
+    # 7. Initialize Execution Handler
     exec_config = ExecutionConfig(
         mode=exec_mode,
         max_position_size=args.max_position_size,
         max_drawdown_limit=args.max_daily_loss / args.max_capital if args.max_capital > 0 else 0.05
     )
-    execution = ExecutionHandler(db_manager, clock, broker, exec_config, initial_capital=args.max_capital)
+    execution = ExecutionHandler(
+        db_manager=db_manager, 
+        clock=clock, 
+        broker=broker, 
+        config=exec_config, 
+        capture_engine=capture_engine,
+        initial_capital=args.max_capital
+    )
     position_tracker = PositionTracker()
 
     # 7. Initialize Session Logger

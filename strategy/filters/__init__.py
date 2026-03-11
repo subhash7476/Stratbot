@@ -1,0 +1,2 @@
+"""Strategy pre-trade filters."""
+

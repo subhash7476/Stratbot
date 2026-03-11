@@ -1,0 +1,25 @@
+{
+    "underlying": "NSE_INDEX|Nifty 50",
+    "structure": "short_straddle",
+    "entry_checkpoint": "13pm",
+    "entry_after_minutes": 45,
+    "exit_time": {"hour": 15, "minute": 15},
+    "profit_target_pct": 0.50,
+    "stop_loss_multiplier": 2.0,
+    "delta_adjustment_threshold": 0.55,
+    "max_portfolio_delta": 500,
+    "iv_default": 0.14,
+    "risk_free_rate": 0.065,
+    "max_lots": 2,
+    "vix_skip_above": 20.0,
+    "vix_reduce_above": 16.0,
+    "regime_sizing": {
+        "Choppy": 1.0,
+        "BullTrend": 0.5,
+        "BearTrend": 0.5
+    },
+    "expiry_days_min": 2,
+    "cost_per_lot_rs": 90,
+    "lot_size": 75,
+    "strike_step": 50
+}

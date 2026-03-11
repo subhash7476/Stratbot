@@ -175,6 +175,14 @@ def upstox_callback():
         
         credentials.save(token_data)
         flash("Upstox connected successfully!", "success")
+
+        # Refresh instrument master on fresh token (once per OAuth, not per restart)
+        try:
+            from scripts.fetch_instrument_master import refresh
+            n = refresh()
+            flash(f"Instrument master refreshed: {n:,} instruments.", "success")
+        except Exception as im_err:
+            flash(f"Instrument master refresh failed: {im_err}", "warning")
     except Exception as e:
         flash(f"Failed to exchange token: {e}", "error")
         

@@ -3,7 +3,7 @@ Clock - Single Source of Truth for Time
 ---------------------------------------
 Abstracts time to support both live trading and historical replay.
 """
-from abc import ABC, abstractmethod
+from abc import ABC
 from datetime import datetime, timedelta
 import pytz
 
@@ -12,10 +12,9 @@ class Clock(ABC):
     Abstract base class for all clocks.
     """
     
-    @abstractmethod
     def now(self) -> datetime:
         """Returns the current 'system' time."""
-        pass
+        return datetime.now(pytz.UTC)
 
     def sleep(self, seconds: float):
         """Simulates or performs an actual sleep."""

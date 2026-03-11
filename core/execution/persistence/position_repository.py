@@ -12,7 +12,8 @@ class PositionRepository:
 
     def save_snapshot(self, position: Position):
         try:
-            with self.store.get_connection() as conn:
+            conn = self.store.get_connection()
+            try:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO positions 
@@ -24,17 +25,25 @@ class PositionRepository:
                         position.side.value,
                         position.quantity,
                         position.avg_price,
-                        position.timestamp.isoformat() if position.timestamp else datetime.now().isoformat()
+                        position.last_updated.isoformat() if position.last_updated else datetime.now().isoformat(),
                     )
                 )
+                conn.commit()
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(
                 f"Failed to save position snapshot for {position.symbol}: {e}")
 
+    def save(self, position: Position):
+        """Backward-compatible alias used by PositionTracker."""
+        self.save_snapshot(position)
+
     def load_all(self) -> Dict[str, Position]:
         positions = {}
         try:
-            with self.store.get_connection() as conn:
+            conn = self.store.get_connection()
+            try:
                 rows = conn.execute("SELECT * FROM positions").fetchall()
                 for row in rows:
                     # Parse symbol into Instrument object
@@ -49,6 +58,9 @@ class PositionRepository:
                         last_updated=datetime.fromisoformat(row[4])
                     )
                     positions[pos.symbol] = pos
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(f"Failed to load positions: {e}")
         return positions
+

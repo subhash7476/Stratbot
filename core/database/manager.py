@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import date
 from typing import Dict, Any, Generator, Optional, Union, List
+from enum import Enum
 import duckdb
 import sqlite3
 import logging
@@ -13,15 +14,39 @@ from .locks import WriterLock
 
 logger = logging.getLogger(__name__)
 
+class DatabaseDomain(str, Enum):
+    """Legacy logical DB domains used by older tests/utilities."""
+    CONFIG = "CONFIG"
+    MARKET_DATA = "MARKET_DATA"
+    TRADING = "TRADING"
+    ANALYTICS = "ANALYTICS"
+
+
 class DatabaseManager:
     """
     Central database connection manager.
     Enforces ownership rules, connection modes, and single-writer locks.
     """
 
-    def __init__(self, data_root: Union[str, Path], read_only: bool = False):
+    _instance: Optional["DatabaseManager"] = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton instance for test isolation."""
+        cls._instance = None
+
+    def __init__(self, data_root: Union[str, Path] = "data", read_only: bool = False):
+        if getattr(self, "_initialized", False):
+            return
         self.data_root = Path(data_root).resolve()
         self.read_only = read_only # Only enforced for DuckDB market data
+        self._legacy_db_path = self.data_root if self.data_root.suffix == ".duckdb" else None
         self._infra_locks: Dict[str, threading.Lock] = {}
         self._master_lock = threading.Lock()
         # In unified mode (same process), we should be more aggressive about RW connections
@@ -30,6 +55,7 @@ class DatabaseManager:
         
         if self.read_only:
             logger.info("DatabaseManager initialized in READ-ONLY mode for DuckDB.")
+        self._initialized = True
 
     def _check_duckdb_write_permission(self):
         if self.read_only:
@@ -74,6 +100,72 @@ class DatabaseManager:
         if last_exception:
             raise last_exception
         return duckdb.connect(path_str, read_only=read_only)
+
+    # ------------------------------------------------------------------
+    # Legacy compatibility API used by older tests/utilities
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def read(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        """Legacy read context."""
+        if self._legacy_db_path is not None:
+            conn = self._duckdb_connect(self._legacy_db_path, read_only=True)
+            try:
+                yield conn
+            finally:
+                conn.close()
+            return
+        with self.config_reader() as conn:
+            yield conn
+
+    @contextmanager
+    def write(self, domain: DatabaseDomain = DatabaseDomain.CONFIG):
+        """Legacy write context with domain switch."""
+        if self._legacy_db_path is not None:
+            conn = self._duckdb_connect(self._legacy_db_path, read_only=False)
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                yield conn
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    # Avoid masking the original error if transaction is already closed.
+                    pass
+                raise
+            finally:
+                conn.close()
+            return
+        if domain == DatabaseDomain.CONFIG:
+            with self.config_writer() as conn:
+                yield conn
+        elif domain in (DatabaseDomain.TRADING, DatabaseDomain.ANALYTICS):
+            with self.trading_writer() as conn:
+                yield conn
+        else:
+            # Fallback for old APIs when only one DB file is expected.
+            with self.config_writer() as conn:
+                yield conn
+
+    @contextmanager
+    def transaction(self, domain: DatabaseDomain = DatabaseDomain.CONFIG):
+        """Alias of write() for legacy callers."""
+        with self.write(domain) as conn:
+            yield conn
+
+    @contextmanager
+    def isolated_connection(self, db_path: Union[str, Path]):
+        """Open isolated ad-hoc DuckDB connection for tests/tools."""
+        conn = self._duckdb_connect(db_path, read_only=False)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     # ─────────────────────────────────────────────────────────────
     # HISTORICAL MARKET DATA (Read-Only except for ingestor)
@@ -144,6 +236,9 @@ class DatabaseManager:
 
                 ticks_conn = self._duckdb_connect(ticks_path, read_only=False)
                 candles_conn = self._duckdb_connect(candles_path, read_only=False)
+                from core.database.schema import MARKET_TICKS_SCHEMA, MARKET_CANDLES_SCHEMA
+                ticks_conn.execute(MARKET_TICKS_SCHEMA)
+                candles_conn.execute(MARKET_CANDLES_SCHEMA)
                 try:
                     yield {'ticks': ticks_conn, 'candles': candles_conn}
                 finally:
@@ -161,8 +256,14 @@ class DatabaseManager:
         with self._get_thread_lock('live_buffer'):
             conns = {}
             try:
+                # Open each file independently — a ticks lock (Windows Defender / WAL
+                # checkpoint) must not block candles access, since most callers only
+                # need candles.
                 if ticks_path.exists():
-                    conns['ticks'] = self._duckdb_connect(ticks_path, read_only=True)
+                    try:
+                        conns['ticks'] = self._duckdb_connect(ticks_path, read_only=True)
+                    except Exception as _te:
+                        logger.debug(f"live_buffer ticks open failed (proceeding without): {_te}")
                 if candles_path.exists():
                     conns['candles'] = self._duckdb_connect(candles_path, read_only=True)
                 yield conns
@@ -176,6 +277,22 @@ class DatabaseManager:
 
     @contextmanager
     def trading_writer(self) -> Generator[sqlite3.Connection, None, None]:
+        if self._legacy_db_path is not None:
+            conn = self._duckdb_connect(self._legacy_db_path, read_only=False)
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                yield conn
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                conn.close()
+            return
+
         lock_path = self.data_root / 'trading' / '.writer.lock'
         db_path = self.data_root / 'trading' / 'trading.db'
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,6 +313,14 @@ class DatabaseManager:
 
     @contextmanager
     def trading_reader(self) -> Generator[sqlite3.Connection, None, None]:
+        if self._legacy_db_path is not None:
+            conn = self._duckdb_connect(self._legacy_db_path, read_only=True)
+            try:
+                yield conn
+            finally:
+                conn.close()
+            return
+
         db_path = self.data_root / 'trading' / 'trading.db'
         if not db_path.exists():
             raise FileNotFoundError(f"Trading database not found: {db_path}")

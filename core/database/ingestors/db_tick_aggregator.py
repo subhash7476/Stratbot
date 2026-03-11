@@ -43,7 +43,23 @@ class DBTickAggregator:
                 else:
                     logger.error(f"Failed to acquire live buffer for aggregation batch after {max_retries} attempts: {e}")
 
+    def _table_exists(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
+        """Return True if table_name exists in the given DuckDB connection."""
+        try:
+            result = conn.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_name = ?",
+                [table_name]
+            ).fetchone()
+            return bool(result and result[0] > 0)
+        except Exception:
+            return False
+
     def _aggregate_symbol(self, symbol: str, ticks_conn: duckdb.DuckDBPyConnection, candles_conn: duckdb.DuckDBPyConnection):
+        # Guard: ticks table may not exist yet (empty/new DB file)
+        if not self._table_exists(ticks_conn, 'ticks'):
+            logger.debug(f"Skipping {symbol}: ticks table not yet initialised in live buffer.")
+            return
+
         # 1. Find the last aggregated bar timestamp
         last_bar_ts = self._get_last_bar_timestamp(symbol, candles_conn)
 

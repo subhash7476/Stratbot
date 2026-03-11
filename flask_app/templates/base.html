@@ -50,12 +50,36 @@
                 <span class="font-medium">Database</span>
             </a>
             <a href="{{ url_for('scanner.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'scanner.index' %}active{% endif %}">
-                <i class="fas fa-radar w-6"></i>
-                <span class="font-medium">Scanner</span>
+                <i class="fas fa-chart-line w-6"></i>
+                <span class="font-medium">Nifty PM</span>
             </a>
             <a href="{{ url_for('ops.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint == 'ops.index' %}active{% endif %}">
                 <i class="fas fa-microchip w-6"></i>
                 <span class="font-medium">Operations</span>
+            </a>
+            <a href="{{ url_for('paper_trading.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('paper_trading') %}active{% endif %}">
+                <i class="fas fa-paper-plane w-6"></i>
+                <span class="font-medium">Paper Trading</span>
+            </a>
+            <a href="{{ url_for('ftmo.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('ftmo') %}active{% endif %}">
+                <i class="fas fa-trophy w-6"></i>
+                <span class="font-medium">FTMO Challenge</span>
+            </a>
+            <a href="{{ url_for('niftyshield.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('niftyshield') %}active{% endif %}">
+                <i class="fas fa-shield-alt w-6"></i>
+                <span class="font-medium">NiftyShield</span>
+            </a>
+            <a href="{{ url_for('propdeskmode.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('propdeskmode') %}active{% endif %}">
+                <i class="fas fa-briefcase w-6"></i>
+                <span class="font-medium">Prop Desk</span>
+            </a>
+            <a href="{{ url_for('options.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('options') %}active{% endif %}">
+                <i class="fas fa-chart-bar w-6"></i>
+                <span class="font-medium">Options</span>
+            </a>
+            <a href="{{ url_for('commodities.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('commodities') %}active{% endif %}">
+                <i class="fas fa-oil-can w-6"></i>
+                <span class="font-medium">Commodities</span>
             </a>
         </nav>
 

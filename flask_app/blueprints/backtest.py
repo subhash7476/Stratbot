@@ -75,11 +75,8 @@ def get_strategies():
     """Returns list of available strategies."""
     strategies = get_available_strategies()
     strategy_names = {
-        "ehma_pivot": "EHMA Pivot Crossover",
-        "confluence_consumer": "Confluence Engine",
-        "regime_v2": "Daily Regime V2",
-        "regime_adaptive": "Regime Adaptive",
-        "premium_tp_sl": "Premium TP/SL Strategy"
+        "v9_pm_scalper": "V9 PM Scalper (Nifty)",
+        "pixityAI_meta": "PixityAI Batch (Equity)",
     }
 
     result = []
