@@ -259,7 +259,39 @@ class MT5LiveTrader:
             mt5.symbol_select(SYMBOL, True)
 
         order_type = mt5.ORDER_TYPE_BUY if setup.direction == "LONG" else mt5.ORDER_TYPE_SELL
-        price = mt5.symbol_info_tick(SYMBOL).ask if setup.direction == "LONG" else mt5.symbol_info_tick(SYMBOL).bid
+        tick = mt5.symbol_info_tick(SYMBOL)
+        price = tick.ask if setup.direction == "LONG" else tick.bid
+
+        # Entry price validation — reject if market has moved too far from setup entry.
+        # The setup entry is a limit-entry zone from historical bars. If price has blown
+        # past it by >50% of the risk distance, the structural premise is invalid.
+        max_adverse = 0.5 * setup.risk_points
+        if setup.direction == "LONG" and price < setup.entry_price - max_adverse:
+            print(f"[ORDER] ENTRY_STALE — price {price:.2f} is {setup.entry_price - price:.2f}pts "
+                  f"below entry {setup.entry_price:.2f} (max allowed: {max_adverse:.2f}pts)")
+            logger.warning(f"Entry stale: price={price:.2f} entry={setup.entry_price:.2f} max_adverse={max_adverse:.2f}")
+            _append_trade_log({
+                "date": datetime.now(tz=timezone.utc).astimezone(
+                    __import__("zoneinfo").ZoneInfo(IST)).strftime("%Y-%m-%d %H:%M"),
+                "session": session, "direction": setup.direction,
+                "entry": setup.entry_price, "sl": setup.stop_loss, "tp": setup.take_profit,
+                "lots": lot_size, "outcome": "ENTRY_STALE",
+                "pnl": 0, "equity_after": self.state.equity, "ticket": "",
+            })
+            return
+        if setup.direction == "SHORT" and price > setup.entry_price + max_adverse:
+            print(f"[ORDER] ENTRY_STALE — price {price:.2f} is {price - setup.entry_price:.2f}pts "
+                  f"above entry {setup.entry_price:.2f} (max allowed: {max_adverse:.2f}pts)")
+            logger.warning(f"Entry stale: price={price:.2f} entry={setup.entry_price:.2f} max_adverse={max_adverse:.2f}")
+            _append_trade_log({
+                "date": datetime.now(tz=timezone.utc).astimezone(
+                    __import__("zoneinfo").ZoneInfo(IST)).strftime("%Y-%m-%d %H:%M"),
+                "session": session, "direction": setup.direction,
+                "entry": setup.entry_price, "sl": setup.stop_loss, "tp": setup.take_profit,
+                "lots": lot_size, "outcome": "ENTRY_STALE",
+                "pnl": 0, "equity_after": self.state.equity, "ticket": "",
+            })
+            return
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
