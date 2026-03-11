@@ -7,7 +7,9 @@ Usage:
     python -m ftmo.cli live --login 1512742557 --password <PASS> --server FTMO-Demo
 """
 
+import csv
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -32,6 +34,21 @@ IST = "Asia/Kolkata"
 POLL_INTERVAL_SEC = 60          # Check every 60 seconds
 MIN_BARS_REQUIRED = 100         # Minimum bars needed before scanning
 SESSION_OPEN_BUFFER_MIN = 2     # Scan this many minutes after session opens
+DATA_FRESHNESS_MAX_MIN = 15     # Reject scan if latest bar is older than this
+TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "trade_log.csv")
+_TRADE_LOG_HEADERS = [
+    "date", "session", "direction", "entry", "sl", "tp",
+    "lots", "outcome", "pnl", "equity_after", "ticket"
+]
+
+
+def _append_trade_log(row: dict):
+    file_exists = os.path.isfile(TRADE_LOG_PATH)
+    with open(TRADE_LOG_PATH, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_TRADE_LOG_HEADERS)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 def _get_mt5():
@@ -51,6 +68,7 @@ class MT5LiveTrader:
         self.risk = RiskEngine()
         self.state: Optional[AccountState] = None
         self._open_ticket: Optional[int] = None  # one trade at a time
+        self._pending_log: Optional[dict] = None  # trade row waiting for close
         self._session1_scanned_today = False
         self._session2_scanned_today = False
         self._last_date = None
@@ -89,6 +107,7 @@ class MT5LiveTrader:
 
         print(f"[LIVE] Starting XAUUSD challenge trader. Ctrl+C to stop.")
         print(f"[LIVE] Session 1: {NY_START}–{NY_END} IST  |  Session 2: {NY2_START}–{NY2_END} IST")
+        print(f"[LIVE] Trade log: {TRADE_LOG_PATH}")
 
         try:
             while True:
@@ -165,6 +184,15 @@ class MT5LiveTrader:
         # Enrich with ATR
         df_m5, _ = enrich_with_indicators(df)
 
+        # Data freshness guard — reject if MT5 feed is stale
+        latest_bar_time = df_m5["timestamp"].iloc[-1]
+        now_utc = datetime.now(tz=timezone.utc)
+        bar_age_min = (now_utc - latest_bar_time.to_pydatetime()).total_seconds() / 60
+        if bar_age_min > DATA_FRESHNESS_MAX_MIN:
+            print(f"[S{session}] REJECTED — data stale ({bar_age_min:.1f} min since last bar)")
+            logger.warning(f"S{session}: stale feed, last bar {bar_age_min:.1f} min ago")
+            return
+
         # Extract pre-session range and session bars
         if session == 1:
             pre_s, pre_e = PRE_NY_START, PRE_NY_END
@@ -194,31 +222,32 @@ class MT5LiveTrader:
         setups = scan_session(ny_bars, pre_high, pre_low, m15_atr, cutoff=cutoff)
 
         if not setups:
-            print(f"[S{session}] No setup found (pre-range: {pre_high:.2f}–{pre_low:.2f}, ATR: {m15_atr:.2f})")
+            print(f"[S{session}] NO_SETUP (pre-range: {pre_high:.2f}–{pre_low:.2f}, ATR: {m15_atr:.2f})")
             return
 
         # Risk gate
+        setup = setups[0]
         risk_dollar = self.risk.calculate_risk_per_trade(self.state)
         allowed, reason, status = self.risk.check_pre_trade(
-            self.state, risk_dollar, setups[0].timestamp
+            self.state, risk_dollar, setup.timestamp
         )
         if not allowed:
-            print(f"[S{session}] Trade blocked: {reason}")
+            print(f"[S{session}] BLOCKED — {reason}")
+            logger.info(f"S{session}: trade blocked: {reason}")
             return
 
-        setup = setups[0]  # Take first valid setup
         lot_size = self.risk.calculate_lot_size(self.state, setup.risk_points)
         lot_size = round(max(0.01, lot_size), 2)
 
-        print(f"[S{session}] Setup: {setup.direction} | Entry: {setup.entry_price:.2f} "
+        print(f"[S{session}] EXECUTING {setup.direction} | Entry: {setup.entry_price:.2f} "
               f"SL: {setup.stop_loss:.2f} TP: {setup.take_profit:.2f} "
               f"Risk: {setup.risk_points:.2f}pts | Lots: {lot_size}")
 
-        self._place_order(setup, lot_size)
+        self._place_order(setup, lot_size, session)
 
     # ── Order Management ────────────────────────────────────────────────────
 
-    def _place_order(self, setup, lot_size: float):
+    def _place_order(self, setup, lot_size: float, session: int = 0):
         mt5 = _get_mt5()
         symbol_info = mt5.symbol_info(SYMBOL)
         if symbol_info is None:
@@ -258,10 +287,25 @@ class MT5LiveTrader:
                 print(f"[ORDER]      or go to Tools → Options → Expert Advisors → Allow automated trading.")
             else:
                 print(f"[ORDER] FAILED: {code} — {comment}")
+            _append_trade_log({
+                "date": datetime.now(tz=timezone.utc).astimezone(
+                    __import__("zoneinfo").ZoneInfo(IST)).strftime("%Y-%m-%d %H:%M"),
+                "session": session, "direction": setup.direction,
+                "entry": setup.entry_price, "sl": setup.stop_loss, "tp": setup.take_profit,
+                "lots": lot_size, "outcome": f"ORDER_FAILED_{code}",
+                "pnl": 0, "equity_after": self.state.equity, "ticket": "",
+            })
             return
 
         self._open_ticket = result.order
-        print(f"[ORDER] Placed #{result.order}: {setup.direction} {lot_size} lots @ {price:.2f} "
+        self._pending_log = {
+            "date": datetime.now(tz=timezone.utc).astimezone(
+                __import__("zoneinfo").ZoneInfo(IST)).strftime("%Y-%m-%d %H:%M"),
+            "session": session, "direction": setup.direction,
+            "entry": price, "sl": setup.stop_loss, "tp": setup.take_profit,
+            "lots": lot_size, "ticket": result.order,
+        }
+        print(f"[ORDER] EXECUTED #{result.order}: {setup.direction} {lot_size} lots @ {price:.2f} "
               f"SL={setup.stop_loss:.2f} TP={setup.take_profit:.2f}")
         logger.info(f"Order #{result.order} placed: {setup.direction} {lot_size}L @ {price:.2f}")
 
@@ -312,6 +356,8 @@ class MT5LiveTrader:
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 print(f"[ORDER] Closed #{pos.ticket} at {price:.2f} (TIME_CUTOFF)")
                 logger.info(f"Closed #{pos.ticket} at {price:.2f}")
+                if self._pending_log:
+                    self._pending_log["outcome"] = "TIME_CUTOFF"
             else:
                 logger.error(f"Close failed: {result.retcode if result else mt5.last_error()}")
 
@@ -325,8 +371,14 @@ class MT5LiveTrader:
         )
         pnl = sum(d.profit for d in deals) if deals else 0.0
         self.state = self.risk.update_post_trade(self.state, pnl)
-        print(f"[POS] Closed. P&L: {pnl:+.2f} | Equity: {self.state.equity:,.2f}")
+        outcome = "TP" if pnl > 0 else ("SL" if pnl < 0 else "FLAT")
+        print(f"[POS] Closed ({outcome}). P&L: {pnl:+.2f} | Equity: {self.state.equity:,.2f}")
         logger.info(f"Position {self._open_ticket} closed. PnL={pnl:.2f} Equity={self.state.equity:.2f}")
+
+        if self._pending_log:
+            _append_trade_log({**self._pending_log, "outcome": outcome,
+                                "pnl": round(pnl, 2), "equity_after": round(self.state.equity, 2)})
+            self._pending_log = None
         self._open_ticket = None
 
     # ── Daily Reset ──────────────────────────────────────────────────────────
