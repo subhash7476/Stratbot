@@ -187,6 +187,24 @@ class MT5LiveTrader:
             except Exception as e:
                 logger.warning(f"Could not read cache: {e}")
 
+        # Recover any open position placed by this strategy (magic=20260311)
+        positions = mt5.positions_get(symbol=SYMBOL)
+        for pos in (positions or []):
+            if pos.magic == 20260311:
+                self._open_ticket = pos.ticket
+                self._pending_log = {
+                    "date": datetime.fromtimestamp(pos.time, tz=timezone.utc)
+                        .astimezone(__import__("zoneinfo").ZoneInfo(IST))
+                        .strftime("%Y-%m-%d %H:%M"),
+                    "session": 0, "direction": "LONG" if pos.type == 0 else "SHORT",
+                    "entry": pos.price_open, "sl": pos.sl, "tp": pos.tp,
+                    "lots": pos.volume, "ticket": pos.ticket,
+                }
+                print(f"[RECOVER] Resuming open position #{pos.ticket} "
+                      f"{'LONG' if pos.type == 0 else 'SHORT'} {pos.volume}L "
+                      f"@ {pos.price_open:.2f} SL={pos.sl:.2f} TP={pos.tp:.2f}")
+                break
+
     def disconnect(self):
         try:
             _get_mt5().shutdown()
@@ -462,17 +480,62 @@ class MT5LiveTrader:
 
         # Check if position still open
         positions = mt5.positions_get(symbol=SYMBOL)
-        ticket_open = any(p.ticket == self._open_ticket for p in (positions or []))
+        pos = next((p for p in (positions or []) if p.ticket == self._open_ticket), None)
 
-        if not ticket_open:
+        if pos is None:
             # Position closed (TP or SL hit by broker)
             self._on_position_closed()
             return
+
+        # Breakeven stop — move SL to entry once +1R in profit
+        self._check_breakeven(pos, mt5)
 
         # Time cutoff — close manually if session ended
         session_ended = now_t >= NY2_END or (NY_END <= now_t < NY2_START)
         if session_ended:
             self._close_position()
+
+    def _check_breakeven(self, pos, mt5):
+        """Move SL to entry price once unrealised profit reaches +1R."""
+        entry = pos.price_open
+        current_sl = pos.sl
+        current_tp = pos.tp
+        tick = mt5.symbol_info_tick(SYMBOL)
+        if tick is None:
+            return
+
+        if pos.type == 0:  # LONG
+            current_price = tick.bid
+            risk = entry - current_sl
+            if risk <= 0 or current_sl >= entry:
+                return  # already at or beyond breakeven
+            if current_price >= entry + risk:  # +1R reached
+                new_sl = entry + 0.10  # 0.10pt above entry (broker needs SL != exact entry)
+                self._modify_sl(pos.ticket, new_sl, current_tp, mt5)
+        else:  # SHORT
+            current_price = tick.ask
+            risk = current_sl - entry
+            if risk <= 0 or current_sl <= entry:
+                return
+            if current_price <= entry - risk:  # +1R reached
+                new_sl = entry - 0.10
+                self._modify_sl(pos.ticket, new_sl, current_tp, mt5)
+
+    def _modify_sl(self, ticket: int, new_sl: float, tp: float, mt5):
+        """Send SL modification request to MT5."""
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "sl": new_sl,
+            "tp": tp,
+        }
+        result = mt5.order_send(request)
+        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"[BE] Breakeven set — SL moved to {new_sl:.2f}")
+            logger.info(f"Breakeven: ticket={ticket} new_sl={new_sl:.2f}")
+        else:
+            code = result.retcode if result else mt5.last_error()
+            logger.warning(f"Breakeven modify failed: {code}")
 
     def _close_position(self):
         mt5 = _get_mt5()
