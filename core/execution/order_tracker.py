@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 from core.execution.order_models import NormalizedOrder
 from core.execution.order_lifecycle import OrderStatus, FillEvent
@@ -29,7 +29,7 @@ class OrderState:
         Apply a fill to this order.
         Updates filled quantity, average price, and status.
         """
-        if fill.order_id != self.order.correlation_id:
+        if str(fill.order_id) != str(self.order.correlation_id):
             raise ValueError(
                 f"Fill order_id {fill.order_id} does not match order {self.order.correlation_id}")
 
@@ -61,24 +61,35 @@ class OrderTracker:
     """
 
     def __init__(self, order_repo: Optional[OrderRepository] = None, fill_repo: Optional[FillRepository] = None):
-        self._orders: Dict[str, OrderState] = {}
+        self._orders: Dict[Any, OrderState] = {}
         self.order_repo = order_repo
         self.fill_repo = fill_repo
 
+    def _resolve_existing_key(self, order_id) -> Optional[Any]:
+        if order_id in self._orders:
+            return order_id
+        order_id_str = str(order_id)
+        for k in self._orders.keys():
+            if str(k) == order_id_str:
+                return k
+        return None
+
     def add_order(self, order: NormalizedOrder, persist: bool = True) -> OrderState:
-        if order.correlation_id in self._orders:
+        key = order.correlation_id
+        if key in self._orders:
             raise ValueError(f"Order {order.correlation_id} already tracked")
 
         state = OrderState(order)
-        self._orders[order.correlation_id] = state
+        self._orders[key] = state
 
         if persist and self.order_repo:
             self.order_repo.save(order)
 
         return state
 
-    def get_order(self, order_id: str) -> Optional[OrderState]:
-        return self._orders.get(order_id)
+    def get_order(self, order_id) -> Optional[OrderState]:
+        key = self._resolve_existing_key(order_id)
+        return self._orders.get(key) if key is not None else None
 
     def process_fill(self, fill: FillEvent, persist: bool = True) -> OrderState:
         state = self.get_order(fill.order_id)
@@ -92,3 +103,18 @@ class OrderTracker:
             self.fill_repo.save(fill)
 
         return state
+
+    # Legacy compatibility helpers used by older tests
+    def register(self, order: NormalizedOrder) -> OrderState:
+        return self.add_order(order)
+
+    def add_fill(self, fill: FillEvent) -> OrderStatus:
+        return self.process_fill(fill).status
+
+    def get_status(self, order_id) -> Optional[OrderStatus]:
+        state = self.get_order(order_id)
+        return state.status if state else None
+
+    def remaining_qty(self, order_id) -> float:
+        state = self.get_order(order_id)
+        return state.remaining_quantity if state else 0.0

@@ -4,10 +4,10 @@ Authentication Service
 Core business logic for user management and session verification.
 """
 import logging
-from typing import Optional, List
+from typing import Optional, List, Union
 from pathlib import Path
 
-from core.database.manager import DatabaseManager
+from core.database.manager import DatabaseManager, DatabaseDomain
 from core.auth.password import verify_password, hash_password
 from core.auth.models import User
 
@@ -18,15 +18,21 @@ class AuthService:
     Handles user authentication and registration using isolated config database.
     """
     
-    def __init__(self, db_manager: Optional[DatabaseManager] = None):
-        self.db = db_manager or DatabaseManager(Path("data"))
+    def __init__(self, db_manager: Optional[Union[DatabaseManager, str, Path]] = None):
+        if isinstance(db_manager, (str, Path)):
+            # Ensure path-based auth tests don't reuse a stale singleton manager
+            # initialized against a different database root.
+            DatabaseManager.reset_instance()
+            self.db = DatabaseManager(db_manager)
+        else:
+            self.db = db_manager or DatabaseManager(Path("data"))
 
     def authenticate(self, username: str, password: str) -> Optional[User]:
         """Verifies credentials and returns User object if successful."""
         query = "SELECT username, password_hash, roles FROM users WHERE username = ?"
         logger.info(f"Attempting authentication for user: {username}")
         try:
-            with self.db.config_reader() as conn:
+            with self.db.read() as conn:
                 row = conn.execute(query, [username]).fetchone()
                 if row:
                     logger.info(f"User {username} found in database. Verifying password...")
@@ -51,7 +57,7 @@ class AuthService:
         
         query = "INSERT INTO users (username, password_hash, roles) VALUES (?, ?, ?)"
         try:
-            with self.db.config_writer() as conn:
+            with self.db.write(DatabaseDomain.CONFIG) as conn:
                 conn.execute(query, [username, pw_hash, roles_str])
             return True
         except Exception as e:

@@ -69,6 +69,18 @@
                 <i class="fas fa-shield-alt w-6"></i>
                 <span class="font-medium">NiftyShield</span>
             </a>
+            <a href="{{ url_for('propdeskmode.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('propdeskmode') %}active{% endif %}">
+                <i class="fas fa-briefcase w-6"></i>
+                <span class="font-medium">Prop Desk</span>
+            </a>
+            <a href="{{ url_for('options.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('options') %}active{% endif %}">
+                <i class="fas fa-chart-bar w-6"></i>
+                <span class="font-medium">Options</span>
+            </a>
+            <a href="{{ url_for('commodities.index') }}" class="sidebar-link flex items-center px-4 py-3 rounded-lg text-slate-400 {% if request.endpoint and request.endpoint.startswith('commodities') %}active{% endif %}">
+                <i class="fas fa-oil-can w-6"></i>
+                <span class="font-medium">Commodities</span>
+            </a>
         </nav>
 
         <div class="p-4 border-t border-slate-800">

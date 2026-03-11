@@ -30,45 +30,48 @@ def get_session_date(ts: datetime) -> str:
     return ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)[:10]
 
 
-def compute_pre_ny_ranges(df_m5: pd.DataFrame) -> dict[str, PreNYRange]:
-    """Compute pre-NY high/low for each trading date."""
+def _classify_all(df_m5: pd.DataFrame) -> pd.DataFrame:
+    """Classify all bars in one vectorised pass. Returns df with session + session_date columns."""
     df = df_m5.copy()
-    df["session"] = df["timestamp"].apply(classify_bar)
-    df["session_date"] = df["timestamp"].apply(get_session_date)
+    t = df["timestamp"].dt.time
+    pre_mask = (t >= PRE_NY_START) & (t < PRE_NY_END)
+    ny_mask = (t >= NY_START) & (t < NY_END)
+    df["session"] = "OUTSIDE"
+    df.loc[pre_mask, "session"] = "PRE_NY"
+    df.loc[ny_mask, "session"] = "NY_SESSION"
+    df["session_date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
+    return df
 
+
+def compute_pre_ny_ranges(df_m5: pd.DataFrame) -> dict[str, PreNYRange]:
+    """Compute pre-session high/low for each trading date (vectorised)."""
+    df = _classify_all(df_m5)
     pre_ny = df[df["session"] == "PRE_NY"]
     ranges = {}
-
     for date, group in pre_ny.groupby("session_date"):
         if len(group) < 2:
-            continue  # Need at least 2 bars for a valid range
-        ranges[date] = PreNYRange(
-            high=group["high"].max(),
-            low=group["low"].min(),
-            date=date,
-        )
-
+            continue
+        ranges[date] = PreNYRange(high=group["high"].max(), low=group["low"].min(), date=date)
     return ranges
 
 
-def get_ny_session_bars(df_m5: pd.DataFrame, session_date: str) -> pd.DataFrame:
-    """Extract NY session bars (6:00-8:00 PM IST) for a given date."""
-    df = df_m5.copy()
-    df["session_date"] = df["timestamp"].apply(get_session_date)
-    df["session"] = df["timestamp"].apply(classify_bar)
+def get_all_ny_bars(df_m5: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Pre-group all NY session bars by date in one pass — avoids per-date full-scan."""
+    df = _classify_all(df_m5)
+    ny = df[df["session"] == "NY_SESSION"]
+    return {date: group.reset_index(drop=True) for date, group in ny.groupby("session_date")}
 
+
+def get_ny_session_bars(df_m5: pd.DataFrame, session_date: str) -> pd.DataFrame:
+    """Extract NY session bars for a given date (single-date lookup)."""
+    df = _classify_all(df_m5)
     mask = (df["session_date"] == session_date) & (df["session"] == "NY_SESSION")
     return df[mask].reset_index(drop=True)
 
 
 def get_trading_dates(df_m5: pd.DataFrame) -> list[str]:
-    """Return sorted list of dates that have both pre-NY and NY session bars."""
-    df = df_m5.copy()
-    df["session"] = df["timestamp"].apply(classify_bar)
-    df["session_date"] = df["timestamp"].apply(get_session_date)
-
+    """Return sorted dates that have both pre-session and NY session bars (vectorised)."""
+    df = _classify_all(df_m5)
     pre_ny_dates = set(df[df["session"] == "PRE_NY"]["session_date"].unique())
     ny_dates = set(df[df["session"] == "NY_SESSION"]["session_date"].unique())
-
-    valid_dates = sorted(pre_ny_dates & ny_dates)
-    return valid_dates
+    return sorted(pre_ny_dates & ny_dates)

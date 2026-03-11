@@ -26,6 +26,10 @@ from core.analytics.resampler import resample_ohlcv
 from core.analytics.populator import AnalyticsPopulator
 from core.database.manager import DatabaseManager
 from core.database import schema
+from core.backtest.usdinr_attribution import (
+    USDINRAttributionReport,
+    build_usdinr_attribution_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -433,3 +437,26 @@ class BacktestRunner:
             'total_pnl': total_pnl,
             'max_drawdown': max_drawdown
         }
+
+    def build_usdinr_filter_attribution(
+        self,
+        *,
+        run_id_without_usdinr_filter: str,
+        run_id_with_usdinr_filter: str,
+    ) -> USDINRAttributionReport:
+        """
+        Compare two completed runs and produce USDINR filter attribution metrics.
+
+        Expects each run DB to have `trades` table with columns `pnl` and `fees`.
+        """
+        def _load_net_trade_pnls(run_id: str) -> List[float]:
+            with self.db.backtest_reader(run_id) as conn:
+                rows = conn.execute("SELECT pnl, fees FROM trades").fetchall()
+            return [float((r[0] or 0.0) - (r[1] or 0.0)) for r in rows]
+
+        without_filter = _load_net_trade_pnls(run_id_without_usdinr_filter)
+        with_filter = _load_net_trade_pnls(run_id_with_usdinr_filter)
+        return build_usdinr_attribution_report(
+            pnls_without_usdinr_filter=without_filter,
+            pnls_with_usdinr_filter=with_filter,
+        )

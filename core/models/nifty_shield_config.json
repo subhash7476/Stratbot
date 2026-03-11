@@ -2,7 +2,7 @@
     "underlying": "NSE_INDEX|Nifty 50",
     "structure": "short_straddle",
     "entry_checkpoint": "13pm",
-    "entry_after_minutes": 5,
+    "entry_after_minutes": 45,
     "exit_time": {"hour": 15, "minute": 15},
     "profit_target_pct": 0.50,
     "stop_loss_multiplier": 2.0,

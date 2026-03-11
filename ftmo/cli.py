@@ -16,6 +16,33 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 logger = logging.getLogger("ftmo.cli")
 
 
+def cmd_live(args):
+    from ftmo.live_trader import MT5LiveTrader
+
+    print(f"Starting FTMO live trader: {args.symbol} @ {args.server}")
+    trader = MT5LiveTrader(login=args.login, password=args.password, server=args.server)
+    trader.connect()
+    trader.run()
+
+
+def cmd_download(args):
+    from ftmo.mt5_downloader import MT5Downloader
+    from pathlib import Path
+
+    dl = MT5Downloader(login=args.login, password=args.password, server=args.server)
+    try:
+        dl.connect()
+        dl.download_and_save(
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            start=args.start,
+            end=args.end,
+            out_dir=Path(__file__).parent,
+        )
+    finally:
+        dl.disconnect()
+
+
 def cmd_import(args):
     from ftmo.ingest import import_csv
     df = import_csv(args.csv_path, source_tz=args.source_tz)
@@ -181,7 +208,7 @@ def cmd_report(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FTMO $50K Challenge System")
+    parser = argparse.ArgumentParser(description="FTMO $100K Challenge System — XAUUSD")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # import
@@ -202,9 +229,30 @@ def main():
     # report
     sub.add_parser("report", help="Print full report")
 
+    # live trading
+    p_live = sub.add_parser("live", help="Run live trader against MT5 terminal")
+    p_live.add_argument("--login", type=int, required=True)
+    p_live.add_argument("--password", required=True)
+    p_live.add_argument("--server", required=True)
+    p_live.add_argument("--symbol", default="XAUUSD")
+
+    # download (from MT5)
+    p_dl = sub.add_parser("download", help="Download OHLCV data directly from MT5 terminal")
+    p_dl.add_argument("--login", type=int, required=True, help="MT5 account login number")
+    p_dl.add_argument("--password", required=True, help="MT5 account password")
+    p_dl.add_argument("--server", required=True, help="MT5 broker server (e.g. FTMO-Demo2)")
+    p_dl.add_argument("--symbol", default="XAUUSD", help="Instrument symbol (default: XAUUSD)")
+    p_dl.add_argument("--timeframe", default="M5", help="Timeframe (default: M5)")
+    p_dl.add_argument("--start", default="2024-01-01", help="Start date YYYY-MM-DD (default: 2024-01-01)")
+    p_dl.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
+
     args = parser.parse_args()
 
-    if args.command == "import":
+    if args.command == "live":
+        cmd_live(args)
+    elif args.command == "download":
+        cmd_download(args)
+    elif args.command == "import":
         cmd_import(args)
     elif args.command == "backtest":
         cmd_backtest(args)

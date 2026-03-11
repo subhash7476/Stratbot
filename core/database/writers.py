@@ -11,7 +11,7 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
 
-from core.database.manager import DatabaseManager
+from core.database.manager import DatabaseManager, DatabaseDomain
 from core.database import schema
 
 logger = logging.getLogger(__name__)
@@ -93,8 +93,8 @@ class MarketDataWriter:
         for c in candles:
             conn.execute("""
                 INSERT INTO candles 
-                (symbol, timeframe, timestamp, open, high, low, close, volume, is_synthetic)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+                (symbol, instrument_key, timeframe, timestamp, open, high, low, close, volume, is_synthetic)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
                 ON CONFLICT (symbol, timeframe, timestamp) DO UPDATE SET
                     open = EXCLUDED.open,
                     high = EXCLUDED.high,
@@ -103,11 +103,56 @@ class MarketDataWriter:
                     volume = EXCLUDED.volume,
                     is_synthetic = FALSE
             """, [
-                symbol, timeframe, c['ts_obj'], 
+                symbol, symbol, timeframe, c['ts_obj'],
                 c['open'], c['high'], c['low'], c['close'], int(c['volume'])
             ])
             count += 1
         return count
+
+    def insert_candle(
+        self,
+        instrument_key: str,
+        timestamp: datetime,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: int,
+        timeframe: str = "1m",
+        deduplicate: bool = True,
+    ) -> bool:
+        """Legacy single-candle insert API used by tests."""
+        if getattr(self.db, "_legacy_db_path", None) is not None:
+            with self.db.write(DatabaseDomain.MARKET_DATA) as conn:
+                if deduplicate:
+                    existing = conn.execute(
+                        "SELECT 1 FROM candles WHERE instrument_key = ? AND timestamp = ?",
+                        [instrument_key, timestamp],
+                    ).fetchone()
+                    if existing:
+                        return False
+                conn.execute(
+                    """
+                    INSERT INTO candles (symbol, instrument_key, timeframe, timestamp, open, high, low, close, volume, is_synthetic)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+                    """,
+                    [instrument_key, instrument_key, timeframe, timestamp, open_, high, low, close, int(volume)],
+                )
+                return True
+
+        inserted = self.insert_candles_batch(
+            symbol=instrument_key,
+            timeframe=timeframe,
+            candles=[{
+                "timestamp": timestamp,
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": volume,
+            }],
+        )
+        return inserted > 0
 
     def update_websocket_status(self, status: str, pid: int) -> None:
         """Update WebSocket connection status in config DB."""

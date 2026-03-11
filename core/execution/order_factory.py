@@ -6,10 +6,10 @@ from core.execution.order_models import (
     NormalizedOrder,
     OrderSide,
     OrderType,
-    InstrumentType,
     OrderMetadata
 )
 from core.execution.position_models import Position, PositionSide
+from core.instruments.instrument_parser import InstrumentParser
 
 
 class OrderFactoryError(Exception):
@@ -30,9 +30,8 @@ class OrderFactory:
         Validates required fields and enforces instrument/type constraints.
         Resolves EXIT signals using current_position context.
         """
-        # 1. Validate Instrument (Only EQUITY supported in Phase 1)
-        # We assume EQUITY as default for now as per constraints
-        instrument = InstrumentType.EQUITY
+        # 1. Resolve instrument from signal symbol
+        instrument = InstrumentParser.parse(signal.symbol)
 
         # 2. Map Side & Reject EXIT
         quantity = 0
@@ -66,8 +65,7 @@ class OrderFactory:
             signal_id = sha256(raw_id.encode()).hexdigest()
 
         return NormalizedOrder(
-            symbol=signal.symbol,
-            instrument_type=instrument,
+            instrument=instrument,
             side=side,
             quantity=quantity,
             order_type=OrderType.MARKET,

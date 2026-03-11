@@ -15,7 +15,7 @@ from ftmo.config import (
     REDUCED_RISK_PCT,
     REDUCED_RISK_THRESHOLD,
     POINT_VALUE,
-    NY_END,
+    NY2_END,   # latest possible session end (Session 2 close)
     RiskStatus,
 )
 
@@ -68,8 +68,8 @@ class RiskEngine:
         if state.trades_today >= MAX_TRADES_PER_DAY:
             return False, f"Max {MAX_TRADES_PER_DAY} trades/day reached", RiskStatus.STOP
 
-        if current_time is not None and current_time.time() >= NY_END:
-            return False, "Past 8:00 PM IST cutoff", RiskStatus.STOP
+        if current_time is not None and current_time.time() >= NY2_END:
+            return False, "Past session close cutoff", RiskStatus.STOP
 
         # Caution zone: approaching limits
         if daily_loss >= internal_daily_limit * 0.7:
@@ -111,12 +111,13 @@ class RiskEngine:
         )
 
     def new_day(self, state: AccountState) -> AccountState:
-        """Reset daily counters. Consecutive losses carry across days."""
+        """Reset daily counters. Consecutive losses reset each day (each day is independent)."""
         return replace(
             state,
             daily_starting_equity=state.equity,
             trades_today=0,
             daily_pnl=0.0,
+            consecutive_losses=0,
         )
 
     def check_ftmo_pass(self, state: AccountState) -> bool:

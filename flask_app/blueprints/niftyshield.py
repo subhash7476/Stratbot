@@ -120,6 +120,25 @@ def api_status():
     except Exception as exc:
         logger.warning(f"status DB read: {exc}")
 
+    # Last regime signal from DB (for display before today's 13pm fires)
+    last_signal = None
+    try:
+        with _db().trading_reader() as conn:
+            cur = conn.execute(
+                """
+                SELECT session_date, predicted_state, confidence, vix_close, signal_time
+                FROM ns_paper_signals
+                WHERE session_date < ?
+                ORDER BY session_date DESC, signal_time DESC LIMIT 1
+                """,
+                [_today()],
+            )
+            row = cur.fetchone()
+            if row:
+                last_signal = _row_to_dict(cur, row)
+    except Exception as exc:
+        logger.warning(f"last_signal DB read: {exc}")
+
     # Live buffer: count NF 1m bars today
     live_bars = 0
     try:
@@ -136,6 +155,46 @@ def api_status():
     except Exception:
         pass
 
+    # Prefer in-memory live position fields when strategy is positioned.
+    # This avoids stale DB open rows showing wrong entry premiums/symbols.
+    if live and live.get("state") == "POSITIONED":
+        try:
+            live_open = {
+                "session_date": live.get("session_date"),
+                "underlying": "NSE_INDEX|Nifty 50",
+                "structure": "SHORT_STRADDLE",
+                "entry_time": live.get("entry_time"),
+                "ce_symbol": live.get("ce_symbol"),
+                "pe_symbol": live.get("pe_symbol"),
+                "ce_strike": live.get("ce_strike"),
+                "pe_strike": live.get("pe_strike"),
+                "ce_entry_premium": live.get("ce_entry_premium"),
+                "pe_entry_premium": live.get("pe_entry_premium"),
+                "total_premium": live.get("total_premium"),
+                "lots": live.get("lots"),
+                "entry_delta": live.get("entry_delta"),
+                "entry_theta": live.get("entry_theta"),
+                "expiry": live.get("expiry"),
+                "ce_now": live.get("ce_now"),
+                "pe_now": live.get("pe_now"),
+                "total_now": live.get("total_now"),
+                "mtm_gross_rs": live.get("mtm_gross_rs"),
+                "mtm_net_rs": live.get("mtm_net_rs"),
+            }
+            open_trade = {**(open_trade or {}), **{k: v for k, v in live_open.items() if v is not None}}
+        except Exception:
+            pass
+    # If not positioned, still enrich any DB open trade with live MTM fields.
+    elif open_trade and live:
+        try:
+            open_trade["ce_now"] = live.get("ce_now")
+            open_trade["pe_now"] = live.get("pe_now")
+            open_trade["total_now"] = live.get("total_now")
+            open_trade["mtm_gross_rs"] = live.get("mtm_gross_rs")
+            open_trade["mtm_net_rs"] = live.get("mtm_net_rs")
+        except Exception:
+            pass
+
     return jsonify(_serialise({
         "success":       True,
         "runner_active": runner is not None,
@@ -144,6 +203,7 @@ def api_status():
         "trades_today":  trades_today,
         "open_trade":    open_trade,
         "live_bars_nf":  live_bars,
+        "last_signal":   last_signal,
         "today":         _today(),
     }))
 
@@ -154,7 +214,7 @@ def api_status():
 @login_required
 def api_trades():
     """Return completed straddle trades, most recent first."""
-    session_date = request.args.get("date", "")
+    session_date = request.args.get("date", _today())
     limit        = int(request.args.get("limit", 200))
     all_dates    = request.args.get("all", "false").lower() == "true"
 
@@ -250,6 +310,7 @@ def api_summary():
                     SUM(CASE WHEN exit_reason='time_exit'     THEN 1 ELSE 0 END)
                 FROM ns_paper_trades
                 WHERE exit_time IS NOT NULL
+                  AND (source IS NULL OR source = 'live')
                 """
             ).fetchone()
             if row and row[0]:
@@ -276,6 +337,7 @@ def api_summary():
                        SUM(CASE WHEN pnl_net_rs > 0 THEN 1 ELSE 0 END) as w
                 FROM ns_paper_trades
                 WHERE exit_time IS NOT NULL
+                  AND (source IS NULL OR source = 'live')
                 GROUP BY predicted_state
                 """
             ).fetchall()
@@ -294,6 +356,7 @@ def api_summary():
                        SUM(CASE WHEN pnl_net_rs > 0 THEN 1 ELSE 0 END) as w
                 FROM ns_paper_trades
                 WHERE exit_time IS NOT NULL
+                  AND (source IS NULL OR source = 'live')
                   AND predicted_state IN ('BullTrend','BearTrend')
                 """
             ).fetchone()

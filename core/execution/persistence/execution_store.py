@@ -19,7 +19,8 @@ class ExecutionStore:
 
     def _init_db(self):
         try:
-            with self.get_connection() as conn:
+            conn = self.get_connection()
+            try:
                 # Orders table
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS orders (
@@ -60,6 +61,8 @@ class ExecutionStore:
                         timestamp TEXT NOT NULL
                     )
                 """)
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(f"Failed to initialize execution store: {e}")
             raise

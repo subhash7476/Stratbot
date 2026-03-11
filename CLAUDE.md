@@ -42,11 +42,19 @@ CLI Scripts → DuckDB → Core Logic → Facade → Flask UI
 | `scripts/nifty_shield_runner.py` | NiftyShield live daemon (30s poll) |
 | `scripts/nifty_shield_backtest.py` | NiftyShield walk-forward backtest |
 | `flask_app/blueprints/niftyshield.py` | NiftyShield Flask blueprint (`/nifty-shield/`) |
+| `core/data/options_provider.py` | Upstox V3 option chain fetcher + DuckDB cache |
+| `core/analytics/options_analytics.py` | Options structural engine (PCR, GEX, OI, Max Pain) |
+| `core/messaging/options_publisher.py` | SSE publisher for real-time option chain updates |
+| `app_facade/options_facade.py` | Options facade — bridge between Flask UI and core |
+| `flask_app/blueprints/options.py` | Options dashboard Flask blueprint (`/options/`) |
+| `flask_app/templates/options/index.html` | Options dashboard UI template |
+| `tests/analytics/test_options.py` | Options engine unit + integration tests (17 tests) |
 | `flask_app/` | Thin Flask UI — display only, no computation |
 | `scripts/` | CLI entry points for backtests, scans, training |
 | `data/market_data/nse/candles/1m/` | 1-min DuckDB candle files by date |
 | `docs/` | Strategy research logs and implementation summaries |
 | `docs/NIFTYSHIELD_IMPLEMENTATION.md` | Full NiftyShield design + API reference |
+| `docs/OPTIONS_ANALYSIS_DASHBOARD_PLAN.md` | Options dashboard design + implementation plan |
 
 ---
 
@@ -111,6 +119,24 @@ CLI Scripts → DuckDB → Core Logic → Facade → Flask UI
 - **Signal quality filter**: DISABLED — regime-dependent, catastrophic in hostile periods
 - **R:R**: SL = 1×ATR, TP = 2×ATR, time stop = 12 bars
 - **Profitable symbols** (Phase 6 scan): VEDL, BDL, KALYANKJIL, PNBHOUSING
+
+---
+
+## Options Analysis Dashboard — In Progress
+
+- **Type**: Real-time options structural analysis for Nifty 50 and BankNifty
+- **Data source**: Upstox V3 Option Chain API, 5-second snapshots
+- **Metrics**: PCR (put-call ratio), Net GEX (gamma exposure), OI buildup patterns, Max Pain, IV smile
+- **Architecture**: `OptionsProvider` (fetch + DuckDB cache) → `OptionsAnalytics` (structural engine) → `OptionsFacade` → Flask blueprint
+- **Provider**: `core/data/options_provider.py` — fetches chain from Upstox V3, caches in `data/market_data/options.duckdb`
+- **Analytics**: `core/analytics/options_analytics.py` — PCR, GEX, OI analysis, Max Pain, ATM detection
+- **Facade**: `app_facade/options_facade.py` — `get_structural_data()`, `get_option_chain()`, `get_gex_distribution()`, `get_summary()`
+- **SSE**: `core/messaging/options_publisher.py` — real-time push to UI
+- **Flask**: `/options/` blueprint + `/api/` endpoints for structural data, chain, GEX, OI distribution
+- **Expiry logic**: Nifty=Tuesday, BankNifty=Wednesday weekly; `get_weekly_expiry()` + `get_expiry_list()` (instrument DB)
+- **Instrument DB**: `data/instruments/nse_fo_instruments.duckdb` — strikes, expiries, lot sizes
+- **Tests**: `tests/analytics/test_options.py` — 17 tests (provider, analytics, integration), all passing
+- **Full plan**: `docs/OPTIONS_ANALYSIS_DASHBOARD_PLAN.md`
 
 ---
 

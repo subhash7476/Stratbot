@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,28 @@ from core.messaging.telemetry import TelemetryPublisher
 
 # Global set to track configured loggers and prevent duplicate handlers
 _configured_loggers = set()
+
+class SafeConsoleHandler(logging.StreamHandler):
+    """
+    Console handler that tolerates non-encodable Unicode on narrow code pages
+    (e.g. cp1252) by escaping unsupported characters instead of crashing.
+    """
+
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except UnicodeEncodeError:
+            try:
+                msg = self.format(record)
+                stream = self.stream if self.stream is not None else sys.stderr
+                encoding = stream.encoding or "utf-8"
+                safe = msg.encode(encoding, errors="backslashreplace").decode(
+                    encoding, errors="ignore"
+                )
+                stream.write(safe + self.terminator)
+                self.flush()
+            except Exception:
+                self.handleError(record)
 
 
 def setup_logger(
@@ -80,7 +103,7 @@ def setup_logger(
     
     # Add console handler if requested
     if console:
-        console_handler = logging.StreamHandler()
+        console_handler = SafeConsoleHandler()
         console_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Commodity Trading System{% endblock %}
+
+{% block content %}
+<div class="space-y-6 p-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">Commodities Engine (MCX Gold Options)</h1>
+            <p class="text-sm text-slate-400 mt-1">Auto-trigger orchestration with deterministic audit snapshots</p>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="exportAudit()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl">Audit Export</button>
+            <button onclick="refreshState()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl">Refresh</button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Regime</p>
+            <p id="regime-card" class="text-lg font-bold text-white">--</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Strike</p>
+            <p id="strike-card" class="text-lg font-bold text-white">--</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Liquidity</p>
+            <p id="liq-card" class="text-lg font-bold text-white">--</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Execution</p>
+            <p id="exec-card" class="text-lg font-bold text-white">--</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Premium Risk Size</p>
+            <p id="risk-card" class="text-lg font-bold text-blue-300">--</p>
+            <p id="risk-sub" class="text-xs text-slate-400 mt-1">--</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Greeks</p>
+            <p id="greeks-card" class="text-sm text-white">--</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">USDINR Filter Impact</p>
+            <p id="usdinr-card" class="text-sm text-slate-300">Use /commodities/api/usdinr-attribution with run_id params.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-2">Data Freshness</p>
+            <p id="fresh-card" class="text-sm text-white">--</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-2">Rejection Reasons</p>
+            <p id="reject-card" class="text-sm text-white">--</p>
+        </div>
+    </div>
+
+    <div class="glass rounded-2xl p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-widest mb-2">Rejection Timeline</p>
+        <div id="timeline" class="space-y-2 text-sm text-slate-300">--</div>
+    </div>
+</div>
+
+<script>
+let latestSnapshot = null;
+
+function byId(id) { return document.getElementById(id); }
+function fmt(n, d=4){ return (n === null || n === undefined || Number.isNaN(Number(n))) ? '--' : Number(n).toFixed(d); }
+
+function renderSnapshot(snapshot, auditMeta){
+    latestSnapshot = snapshot;
+    byId('regime-card').textContent = snapshot.regime?.regime || '--';
+    const sel = snapshot.strike_selection?.selected || {};
+    byId('strike-card').textContent = sel.strike ? `${sel.option_type} ${sel.strike}` : '--';
+
+    const liqPass = snapshot.liquidity_check?.trade_allowed;
+    byId('liq-card').textContent = liqPass ? 'PASS' : 'FAIL';
+    byId('liq-card').className = liqPass ? 'text-lg font-bold text-green-400' : 'text-lg font-bold text-red-400';
+
+    byId('exec-card').textContent = snapshot.execution_status || '--';
+    byId('risk-card').textContent = `${snapshot.risk_sizing?.max_contracts ?? 0} contracts`;
+    byId('risk-sub').textContent = `risk/contract: ${fmt(snapshot.risk_sizing?.risk_per_contract, 2)}`;
+
+    byId('greeks-card').textContent =
+        `? ${fmt(snapshot.greeks?.delta)} | G ${fmt(snapshot.greeks?.gamma)} | T ${fmt(snapshot.greeks?.theta,2)} | V ${fmt(snapshot.greeks?.vega,2)}`;
+
+    const fresh = snapshot.data_freshness?.data_fresh;
+    byId('fresh-card').textContent = `data_fresh=${fresh} | option_age=${fmt(snapshot.data_freshness?.option_chain_age_seconds,1)}s | usdinr_age=${fmt(snapshot.data_freshness?.usdinr_data_age_seconds,1)}s`;
+    byId('reject-card').textContent = (snapshot.rejection_reasons || []).join(', ') || 'None';
+
+    const timeline = (auditMeta?.rejection_timeline || []).map(r =>
+        `<div class="border border-slate-700 rounded p-2"><span class="text-slate-400">${r.timestamp}</span> | ${r.regime || '--'} | ${r.rejection_reason || '--'}</div>`
+    ).join('');
+    byId('timeline').innerHTML = timeline || '--';
+}
+
+async function refreshState(){
+    try {
+        const res = await fetch('/commodities/api/state');
+        const data = await res.json();
+        renderSnapshot(data.strategy_snapshot || {}, data.audit_meta || {});
+    } catch (e) {
+        byId('timeline').textContent = 'Failed to load state';
+    }
+}
+
+function exportAudit(){
+    if (!latestSnapshot){
+        return;
+    }
+    const blob = new Blob([JSON.stringify(latestSnapshot, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `commodity_snapshot_${latestSnapshot.snapshot_id || 'latest'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+setInterval(refreshState, 5000);
+document.addEventListener('DOMContentLoaded', refreshState);
+</script>
+{% endblock %}

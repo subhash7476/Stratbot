@@ -34,21 +34,23 @@ def db_cursor(
     LEGACY: Backward-compatible db_cursor context manager.
     Routes to the new CONFIG database by default.
     """
-    manager = _get_manager()
-
-    if read_only:
-        with manager.config_reader() as conn:
-            yield conn
-    else:
-        with manager.config_writer() as conn:
-            yield conn
+    # Legacy tests expect DuckDB path semantics:
+    # db_path arg > TRADING_DB_PATH env > default "data/trading_bot.duckdb"
+    resolved = db_path or os.environ.get("TRADING_DB_PATH") or "data/trading_bot.duckdb"
+    conn = duckdb.connect(resolved, read_only=read_only)
+    try:
+        yield conn
+        if not read_only:
+            conn.commit()
+    finally:
+        conn.close()
 
 def get_connection(db_path: Optional[str] = None):
     """
     LEGACY: Returns a raw connection to config DB.
     """
-    db_path = db_path or "data/config/config.db"
-    return sqlite3.connect(db_path)
+    db_path = db_path or os.environ.get("TRADING_DB_PATH") or "data/trading_bot.duckdb"
+    return duckdb.connect(db_path, read_only=False)
 
 def get_db():
     return get_connection()

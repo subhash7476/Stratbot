@@ -49,9 +49,12 @@ def init_all():
         
     # 4. Live Buffer DBs
     print("  Initializing Live Buffer DBs...")
-    with db.live_buffer_writer() as conns:
-        conns['ticks'].execute(schema.MARKET_TICKS_SCHEMA)
-        conns['candles'].execute(schema.MARKET_CANDLES_SCHEMA)
+    try:
+        with db.live_buffer_writer() as conns:
+            conns['ticks'].execute(schema.MARKET_TICKS_SCHEMA)
+            conns['candles'].execute(schema.MARKET_CANDLES_SCHEMA)
+    except RuntimeError as e:
+        print(f"  WARNING: Live buffer writer locked ({e}). Schema already initialized — skipping.")
         
     # 5. Backtest Index
     print("  Initializing Backtest Index...")

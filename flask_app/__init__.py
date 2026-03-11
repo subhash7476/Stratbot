@@ -155,7 +155,8 @@ def create_app(test_config=None):
     # Configuration
     app.config.from_mapping(
         SECRET_KEY=os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production'),
-        DATA_ROOT=data_root
+        DATA_ROOT=data_root,
+        JSON_SORT_KEYS=False
     )
 
     if test_config is None:
@@ -192,6 +193,15 @@ def create_app(test_config=None):
 
     from flask_app.blueprints.niftyshield import niftyshield_bp
     app.register_blueprint(niftyshield_bp)
+
+    from flask_app.blueprints.propdeskmode import propdeskmode_bp
+    app.register_blueprint(propdeskmode_bp)
+
+    from flask_app.blueprints.options import options_bp
+    app.register_blueprint(options_bp)
+
+    from flask_app.blueprints.commodities import commodities_bp
+    app.register_blueprint(commodities_bp)
 
     # Global context processor for templates
     @app.context_processor
@@ -242,3 +252,4 @@ def create_app(test_config=None):
     return app
 
 from config.settings import load_zmq_config
+

@@ -98,6 +98,7 @@
                 <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Premium · Lots</p>
                 <p id="pos-prem" class="text-2xl font-bold text-white">—</p>
                 <p id="pos-lots" class="text-xs text-slate-400 mt-1">— lot(s)</p>
+                <p id="pos-mtm" class="text-xs mt-1 text-slate-400">MTM: —</p>
             </div>
         </div>
         <!-- Risk bars -->
@@ -123,7 +124,7 @@
     <div class="glass rounded-2xl p-6">
         <h2 class="text-base font-semibold text-white mb-5 flex items-center gap-2">
             <i class="fas fa-chart-bar text-blue-400"></i>
-            All-Time Summary
+            Live Trade Summary
         </h2>
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
             <div class="text-center">
@@ -259,11 +260,20 @@ async function loadStatus() {
             `<span class="state-badge ${smClass(state)}">${state}</span>`;
 
         // Regime
-        const dayType  = live.day_type || '—';
-        const conf     = live.confidence ? (live.confidence * 100).toFixed(0) + '%' : '—';
-        document.getElementById('kpi-regime').innerHTML =
-            `<span class="state-badge ${regimeClass(dayType)}">${dayType}</span>
-             <span class="text-sm text-slate-400 ml-2">${conf}</span>`;
+        const dayType  = live.day_type || 'Unknown';
+        const conf     = live.confidence ? (live.confidence * 100).toFixed(0) + '%' : '';
+        const lastSig  = d.last_signal;
+        let regimeHtml;
+        if (dayType === 'Unknown' || dayType === '—') {
+            const lastText = lastSig
+                ? `<span class="text-xs text-slate-500 ml-2">Last: ${lastSig.predicted_state} (${lastSig.session_date})</span>`
+                : '';
+            regimeHtml = `<span class="state-badge regime-unknown">Pending 13pm</span>${lastText}`;
+        } else {
+            regimeHtml = `<span class="state-badge ${regimeClass(dayType)}">${dayType}</span>
+                          <span class="text-sm text-slate-400 ml-2">${conf}</span>`;
+        }
+        document.getElementById('kpi-regime').innerHTML = regimeHtml;
 
         // VIX
         const vix = live.vix_close;
@@ -273,8 +283,8 @@ async function loadStatus() {
         document.getElementById('kpi-vix').innerHTML =
             vix ? `<span class="${vixColor} font-bold">${vix.toFixed(2)}</span>` : '<span class="text-slate-500">N/A</span>';
 
-        // Live bars
-        document.getElementById('kpi-bars').textContent = d.live_bars_nf ?? '—';
+        // NF bars fed to strategy today
+        document.getElementById('kpi-bars').textContent = live.bars_fed ?? d.live_bars_nf ?? '—';
 
         // Open position card
         const ot = d.open_trade;
@@ -291,6 +301,15 @@ async function loadStatus() {
             document.getElementById('pos-theta').textContent = `Θ ${ot.entry_theta != null ? ot.entry_theta.toFixed(2) : '—'}/day`;
             document.getElementById('pos-prem').textContent  = fmtPt(ot.total_premium);
             document.getElementById('pos-lots').textContent  = `${ot.lots ?? '—'} lot(s)`;
+            const mtmEl = document.getElementById('pos-mtm');
+            const mtm = ot.mtm_net_rs;
+            if (mtm != null) {
+                mtmEl.textContent = `MTM: ${fmtRs(mtm)} (net)`;
+                mtmEl.className = 'text-xs mt-1 ' + (mtm >= 0 ? 'pnl-pos' : 'pnl-neg');
+            } else {
+                mtmEl.textContent = 'MTM: —';
+                mtmEl.className = 'text-xs mt-1 text-slate-400';
+            }
             document.getElementById('pos-entry-time').textContent = ot.entry_time ? ot.entry_time.replace('T', ' ').slice(0, 16) : '';
         } else {
             posCard.classList.add('hidden');

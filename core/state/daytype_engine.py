@@ -64,22 +64,28 @@ FEATURE_DIR = ROOT / "data" / "features" / "day_type"
 logger = logging.getLogger(__name__)
 
 # ── Checkpoint definitions ─────────────────────────────────────────────────────
-# Minute offset from session open (9:15)
-# 10:00 AM = 9:15 + 45 min → bar index 45
-# 11:00 AM = 9:15 + 105 min → bar index 105
-# 13:00 PM = 9:15 + 225 min → bar index 225
-
+# Bar count thresholds assume continuous 1m bars from 9:15 open.
+# These are kept as reference but NOT used for triggering — wall-clock time
+# is the primary trigger (robust to WebSocket gaps / late starts).
 CHECKPOINT_BARS = {
     '10am': 45,
     '11am': 105,
     '13pm': 225,
 }
 
-# Minimum bars required at each checkpoint before prediction
+# Wall-clock IST times for each checkpoint (primary trigger)
+CHECKPOINT_WALL_TIMES = {
+    '10am': time(10, 0),
+    '11am': time(11, 0),
+    '13pm': time(13, 0),
+}
+
+# Minimum bars required — lowered to tolerate ~50% WebSocket coverage.
+# These are floor values: checkpoint fires at wall-clock time IF bar count >= min.
 MIN_BARS_REQUIRED = {
-    '10am': 44,
-    '11am': 100,
-    '13pm': 220,
+    '10am': 20,
+    '11am': 50,
+    '13pm': 100,
 }
 
 CLUSTER_NAMES = {0: 'BearTrend', 1: 'BullTrend', 2: 'Choppy'}
@@ -263,10 +269,25 @@ class DayTypeEngine:
                 return locked_state
 
         # ── Checkpoint evaluation ──────────────────────────────────────────────
+        # Primary trigger: wall-clock time from bar timestamp (robust to gaps).
+        # Fallback: bar count (for backtests where bars may lack timezone info).
+        bar_ts = bar.get('timestamp')
+        bar_time = None
+        if isinstance(bar_ts, (datetime, pd.Timestamp)):
+            bar_time = bar_ts.time() if hasattr(bar_ts, 'time') else None
+
         for cp, target_bar in CHECKPOINT_BARS.items():
             if cp in self._checkpoints_run:
                 continue
-            if n_bars >= target_bar and n_bars >= MIN_BARS_REQUIRED[cp]:
+            wall_time = CHECKPOINT_WALL_TIMES.get(cp)
+            triggered = False
+            if bar_time is not None and wall_time is not None:
+                # Wall-clock trigger: bar timestamp >= checkpoint time AND minimum bars met
+                triggered = bar_time >= wall_time and n_bars >= MIN_BARS_REQUIRED[cp]
+            else:
+                # Fallback: pure bar count (original behavior for backtests)
+                triggered = n_bars >= target_bar and n_bars >= MIN_BARS_REQUIRED[cp]
+            if triggered:
                 new_state = self._run_checkpoint(cp)
                 self._checkpoints_run.add(cp)
                 if new_state is not None:

@@ -1,4 +1,5 @@
-from typing import Set, Optional, Any
+from typing import Set, Any, Optional, Iterable
+
 from core.execution.order_models import NormalizedOrder
 from core.execution.risk_models import RiskDecision, RiskStatus
 
@@ -9,11 +10,21 @@ class RiskManager:
     Evaluates NormalizedOrders against safety and compliance limits.
     """
 
-    def __init__(self, config: Any = None):
+    def __init__(
+        self,
+        config: Any = None,
+        max_order_quantity: Optional[float] = None,
+        allowed_symbols: Optional[Iterable[str]] = None,
+        denied_symbols: Optional[Iterable[str]] = None,
+        global_kill_switch: Optional[bool] = None,
+        max_daily_trades: Optional[int] = None,
+    ):
         self.max_order_quantity = 1000.0
         self.denied_symbols: Set[str] = set()
         self.allowed_symbols: Set[str] = set()
         self.global_kill_switch = False
+        self.max_daily_trades = 100
+        self._trades_today = 0
 
         if config:
             # Support both object (ExecutionConfig) and dict access
@@ -22,13 +33,34 @@ class RiskManager:
             elif isinstance(config, dict) and "max_position_size" in config:
                 self.max_order_quantity = float(config["max_position_size"])
 
+            if hasattr(config, "max_trades_per_day"):
+                self.max_daily_trades = int(config.max_trades_per_day)
+            elif isinstance(config, dict) and "max_trades_per_day" in config:
+                self.max_daily_trades = int(config["max_trades_per_day"])
+
             if isinstance(config, dict):
                 self.denied_symbols = set(config.get("denied_symbols", []))
                 self.allowed_symbols = set(config.get("allowed_symbols", []))
-                self.global_kill_switch = config.get(
-                    "global_kill_switch", False)
+                self.global_kill_switch = bool(config.get("global_kill_switch", False))
 
-    def evaluate(self, order: NormalizedOrder, trades_today: int = 0, max_trades_per_day: int = 100) -> RiskDecision:
+        # Legacy/direct kwargs override config values when provided
+        if max_order_quantity is not None:
+            self.max_order_quantity = float(max_order_quantity)
+        if allowed_symbols is not None:
+            self.allowed_symbols = set(allowed_symbols)
+        if denied_symbols is not None:
+            self.denied_symbols = set(denied_symbols)
+        if global_kill_switch is not None:
+            self.global_kill_switch = bool(global_kill_switch)
+        if max_daily_trades is not None:
+            self.max_daily_trades = int(max_daily_trades)
+
+    def evaluate(
+        self,
+        order: NormalizedOrder,
+        trades_today: int = 0,
+        max_trades_per_day: int = 100,
+    ) -> RiskDecision:
         """
         Pure logic evaluation of an order.
         Returns RiskDecision(APPROVED) or RiskDecision(REJECTED).
@@ -62,3 +94,18 @@ class RiskManager:
             )
 
         return RiskDecision(RiskStatus.APPROVED)
+
+    # Legacy compatibility API used by older unit tests
+    def validate_signal(self, signal, capital: float) -> bool:
+        if self.global_kill_switch:
+            return False
+        if self._trades_today >= self.max_daily_trades:
+            return False
+        if self.allowed_symbols and signal.symbol not in self.allowed_symbols:
+            return False
+        if signal.symbol in self.denied_symbols:
+            return False
+        return True
+
+    def record_trade(self) -> None:
+        self._trades_today += 1

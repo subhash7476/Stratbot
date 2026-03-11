@@ -23,6 +23,7 @@ import json
 import logging
 import requests
 import duckdb
+import pyarrow as pa
 from datetime import date, datetime
 from pathlib import Path
 
@@ -45,14 +46,9 @@ CREATE TABLE IF NOT EXISTS instruments (
     lot_size        INTEGER,
     exchange        TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_tradingsymbol ON instruments (tradingsymbol);
 """
 
-_UPSERT = """
-INSERT OR REPLACE INTO instruments
-    (instrument_key, tradingsymbol, name, expiry, strike, instrument_type, lot_size, exchange)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-"""
+_CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_tradingsymbol ON instruments (tradingsymbol);"
 
 
 def _parse_expiry(raw) -> str | None:
@@ -84,7 +80,7 @@ def download_and_parse() -> list[dict]:
     for item in instruments:
         # Accept both 'segment' and 'exchange' as the segment identifier
         segment = item.get("segment") or item.get("exchange", "")
-        if segment != "NSE_FO":
+        if segment not in ("NSE_FO", "MCX_FO"):
             continue
 
         ikey = item.get("instrument_key") or item.get("key")
@@ -109,10 +105,10 @@ def download_and_parse() -> list[dict]:
             "strike":          float(strike) if strike else 0.0,
             "instrument_type": itype,
             "lot_size":        int(item.get("lot_size") or 0),
-            "exchange":        "NSE_FO",
+            "exchange":        segment,
         })
 
-    logger.info(f"NSE_FO instruments parsed: {len(rows):,}")
+    logger.info(f"F&O instruments parsed (NSE + MCX): {len(rows):,}")
     return rows
 
 
@@ -122,20 +118,28 @@ def refresh(db_path: Path = DB_PATH) -> int:
 
     rows = download_and_parse()
     if not rows:
-        logger.error("No NSE_FO rows parsed — aborting DB write")
+        logger.error("No F&O rows parsed — aborting DB write")
         return 0
+
+    arrow_data = pa.table({
+        "instrument_key":  [r["instrument_key"] for r in rows],
+        "tradingsymbol":   [r["tradingsymbol"] for r in rows],
+        "name":            [r["name"] for r in rows],
+        "expiry":          [r["expiry"] for r in rows],
+        "strike":          [r["strike"] for r in rows],
+        "instrument_type": [r["instrument_type"] for r in rows],
+        "lot_size":        [r["lot_size"] for r in rows],
+        "exchange":        [r["exchange"] for r in rows],
+    })
 
     con = duckdb.connect(str(db_path))
     try:
+        con.execute("DROP TABLE IF EXISTS instruments")
         con.execute(_CREATE_TABLE)
-        con.executemany(_UPSERT, [
-            (r["instrument_key"], r["tradingsymbol"], r["name"],
-             r["expiry"], r["strike"], r["instrument_type"],
-             r["lot_size"], r["exchange"])
-            for r in rows
-        ])
+        con.execute("INSERT INTO instruments SELECT * FROM arrow_data")
+        con.execute(_CREATE_INDEX)
         count = con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0]
-        logger.info(f"Instrument master refreshed: {count:,} NSE_FO rows in {db_path}")
+        logger.info(f"Instrument master refreshed: {count:,} F&O rows (NSE + MCX) in {db_path}")
         return count
     finally:
         con.close()
@@ -151,4 +155,4 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)s %(message)s"
     )
     n = refresh()
-    print(f"\nDone — {n:,} NSE_FO instruments stored at {DB_PATH}")
+    print(f"\nDone — {n:,} F&O instruments (NSE + MCX) stored at {DB_PATH}")

@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+
+{% block title %}Options Structural Engine{% endblock %}
+{% block breadcrumb %}Options / Structural Analysis{% endblock %}
+
+{% block head %}
+<style>
+    .pcr-bullish { color: #10b981; }
+    .pcr-bearish { color: #ef4444; }
+    .pcr-neutral { color: #f59e0b; }
+    .gex-positive { color: #10b981; }
+    .gex-negative { color: #ef4444; }
+    .gex-neutral { color: #94a3b8; }
+    .atm-highlight { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">Options Structural Engine</h1>
+            <p class="text-sm text-slate-400 mt-1">Real-time OI, PCR, and Net Gamma Exposure analysis</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="last-update" class="text-xs text-slate-500">Last update: --</span>
+            <button onclick="refresh()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-colors">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Index Tabs -->
+    <div class="flex gap-2">
+        <button onclick="switchIndex('NIFTY')" id="tab-nifty" class="px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-blue-600 text-white">
+            Nifty 50
+        </button>
+        <button onclick="switchIndex('BANKNIFTY')" id="tab-banknifty" class="px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-slate-700 text-slate-300 hover:bg-slate-600">
+            Bank Nifty
+        </button>
+    </div>
+
+    <!-- Expiry Selector -->
+    <div class="flex items-center gap-3">
+        <label class="text-xs text-slate-400 uppercase tracking-widest">Expiry:</label>
+        <select id="expiry-select" onchange="loadData()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500">
+            <option value="">Loading...</option>
+        </select>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="glass rounded-2xl p-5 flex flex-col">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Underlying LTP</p>
+            <p id="kpi-ltp" class="text-lg font-bold text-white">--</p>
+        </div>
+        <div class="glass rounded-2xl p-5 flex flex-col">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">PCR</p>
+            <p id="kpi-pcr" class="text-lg font-bold text-white">--</p>
+            <p id="kpi-pcr-sentiment" class="text-xs mt-1">--</p>
+        </div>
+        <div class="glass rounded-2xl p-5 flex flex-col">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Net Gamma (GEX)</p>
+            <p id="kpi-gex" class="text-lg font-bold text-white">--</p>
+            <p id="kpi-gex-regime" class="text-xs mt-1">--</p>
+        </div>
+        <div class="glass rounded-2xl p-5 flex flex-col">
+            <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Key Levels</p>
+            <p id="kpi-levels" class="text-sm font-bold text-white">--</p>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- OI Distribution Chart -->
+        <div class="glass rounded-2xl p-5">
+            <h3 class="text-sm font-semibold text-white mb-4">OI Distribution</h3>
+            <div style="position: relative; height: 250px;">
+                <canvas id="oi-chart"></canvas>
+            </div>
+        </div>
+        <!-- Gamma Exposure Chart -->
+        <div class="glass rounded-2xl p-5">
+            <h3 class="text-sm font-semibold text-white mb-4">Gamma Exposure by Strike</h3>
+            <div style="position: relative; height: 250px;">
+                <canvas id="gex-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Option Chain Table -->
+    <div class="glass rounded-2xl p-5">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-white">Option Chain</h3>
+            <div class="flex items-center gap-2">
+                <label class="text-xs text-slate-400">Strikes:</label>
+                <select id="range-select" onchange="loadChain()" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
+                    <option value="">All</option>
+                    <option value="5">ATM ± 5</option>
+                    <option value="10">ATM ± 10</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Header -->
+        <div class="grid grid-cols-12 gap-2 py-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-widest border-b border-slate-700">
+            <div class="text-center">CE OI</div>
+            <div class="text-center">ΔOI</div>
+            <div class="text-center">LTP</div>
+            <div class="text-center">IV</div>
+            <div class="text-center">Delta</div>
+            <div class="text-center">RV</div>
+            <div class="text-center text-slate-300">Strike</div>
+            <div class="text-center">Delta</div>
+            <div class="text-center">IV</div>
+            <div class="text-center">LTP</div>
+            <div class="text-center">ΔOI</div>
+            <div class="text-center">PE OI</div>
+        </div>
+        
+        <!-- Rows (populated by JS) -->
+        <div id="chain-rows" class="space-y-0"></div>
+    </div>
+
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+// State
+let currentIndex = 'NIFTY';
+let currentExpiry = '';
+let oiChart = null;
+let gexChart = null;
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadExpiries();
+    loadData();
+    setInterval(refresh, 30000); // Auto-refresh every 30s
+});
+
+// Switch index tab
+function switchIndex(index) {
+    currentIndex = index;
+    
+    // Update tab styles
+    document.getElementById('tab-nifty').className = 
+        index === 'NIFTY' 
+            ? 'px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-blue-600 text-white'
+            : 'px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-slate-700 text-slate-300 hover:bg-slate-600';
+    
+    document.getElementById('tab-banknifty').className = 
+        index === 'BANKNIFTY' 
+            ? 'px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-blue-600 text-white'
+            : 'px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-slate-700 text-slate-300 hover:bg-slate-600';
+    
+    loadExpiries();
+    loadData();
+}
+
+// Load expiries
+async function loadExpiries() {
+    try {
+        const resp = await fetch(`/options/api/expiries?index=${currentIndex}`);
+        const data = await resp.json();
+        
+        const select = document.getElementById('expiry-select');
+        select.innerHTML = '';
+        
+        data.expiries.forEach((expiry, idx) => {
+            const opt = document.createElement('option');
+            opt.value = expiry;
+            opt.textContent = new Date(expiry).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+            if (idx === 0) opt.selected = true;
+            select.appendChild(opt);
+        });
+        
+        currentExpiry = data.expiries[0];
+    } catch (err) {
+        console.error('Failed to load expiries:', err);
+    }
+}
+
+// Load all data
+async function loadData() {
+    currentExpiry = document.getElementById('expiry-select').value;
+    await loadSummary();
+    await loadChain();
+    await loadCharts();
+}
+
+// Load summary
+async function loadSummary() {
+    try {
+        const resp = await fetch(`/options/api/summary?index=${currentIndex}&expiry=${currentExpiry}`);
+        const data = await resp.json();
+        
+        document.getElementById('kpi-ltp').textContent = data.underlying_ltp?.toFixed(2) || '--';
+        
+        const pcrEl = document.getElementById('kpi-pcr');
+        pcrEl.textContent = data.pcr?.toFixed(2) || '--';
+        pcrEl.className = `text-lg font-bold ${
+            data.pcr_sentiment === 'Bullish' ? 'pcr-bullish' : 
+            data.pcr_sentiment === 'Bearish' ? 'pcr-bearish' : 'pcr-neutral'
+        }`;
+        document.getElementById('kpi-pcr-sentiment').textContent = data.pcr_sentiment || '--';
+        
+        const gexEl = document.getElementById('kpi-gex');
+        const gexNum = data.net_gamma || 0;
+        gexEl.textContent = Math.abs(gexNum) > 1e8 ? (gexNum / 1e6).toFixed(1) + 'M' : gexNum.toFixed(0);
+        gexEl.className = `text-lg font-bold ${
+            gexNum > 0 ? 'gex-positive' : gexNum < 0 ? 'gex-negative' : 'gex-neutral'
+        }`;
+        document.getElementById('kpi-gex-regime').textContent = data.gex_regime || '--';
+        
+        // Key levels
+        const levels = [];
+        if (data.resistance_strike) levels.push(`R: ${data.resistance_strike}`);
+        if (data.support_strike) levels.push(`S: ${data.support_strike}`);
+        if (data.zero_gamma_level) levels.push(`ZG: ${data.zero_gamma_level}`);
+        document.getElementById('kpi-levels').textContent = levels.join(' | ') || '--';
+        
+        // Last update
+        if (data.last_update) {
+            document.getElementById('last-update').textContent = 
+                'Last update: ' + new Date(data.last_update).toLocaleTimeString('en-IN');
+        }
+    } catch (err) {
+        console.error('Failed to load summary:', err);
+    }
+}
+
+// Load option chain
+async function loadChain() {
+    try {
+        const range = document.getElementById('range-select').value;
+        let url = `/options/api/chain?index=${currentIndex}&expiry=${currentExpiry}`;
+        if (range) url += `&range=${range}`;
+        
+        const resp = await fetch(url);
+        const chain = await resp.json();
+        
+        const container = document.getElementById('chain-rows');
+        container.innerHTML = '';
+        
+        chain.forEach(row => {
+            const rv = row.realized_vol;
+            const rvText = (rv !== null && rv !== undefined && Number.isFinite(Number(rv)))
+                ? (Number(rv) * 100).toFixed(1) + '%'
+                : '--';
+            const div = document.createElement('div');
+            div.className = `grid grid-cols-12 gap-2 py-3 px-4 hover:bg-slate-800/50 transition-colors ${row.is_atm ? 'atm-highlight' : ''}`;
+            div.innerHTML = `
+                <div class="text-center text-sm">${row.ce_oi?.toLocaleString() || '--'}</div>
+                <div class="text-center text-sm ${row.ce_oi_change > 0 ? 'text-green-400' : row.ce_oi_change < 0 ? 'text-red-400' : 'text-slate-400'}">
+                    ${row.ce_oi_change !== 0 ? (row.ce_oi_change > 0 ? '+' : '') + row.ce_oi_change?.toLocaleString() : '--'}
+                </div>
+                <div class="text-center text-sm">${row.ce_ltp?.toFixed(2) || '--'}</div>
+                <div class="text-center text-sm">${row.ce_iv ? (row.ce_iv * 100).toFixed(1) + '%' : '--'}</div>
+                <div class="text-center text-sm">${row.ce_delta?.toFixed(2) || '--'}</div>
+                <div class="text-center text-sm">${rvText}</div>
+                <div class="text-center text-base font-bold ${row.is_atm ? 'text-blue-400' : 'text-white'}">${row.strike}</div>
+                <div class="text-center text-sm">${row.pe_delta?.toFixed(2) || '--'}</div>
+                <div class="text-center text-sm">${row.pe_iv ? (row.pe_iv * 100).toFixed(1) + '%' : '--'}</div>
+                <div class="text-center text-sm">${row.pe_ltp?.toFixed(2) || '--'}</div>
+                <div class="text-center text-sm ${row.pe_oi_change > 0 ? 'text-green-400' : row.pe_oi_change < 0 ? 'text-red-400' : 'text-slate-400'}">
+                    ${row.pe_oi_change !== 0 ? (row.pe_oi_change > 0 ? '+' : '') + row.pe_oi_change?.toLocaleString() : '--'}
+                </div>
+                <div class="text-center text-sm">${row.pe_oi?.toLocaleString() || '--'}</div>
+            `;
+            container.appendChild(div);
+        });
+    } catch (err) {
+        console.error('Failed to load chain:', err);
+    }
+}
+
+// Load charts
+async function loadCharts() {
+    await loadOIChart();
+    await loadGEXChart();
+}
+
+// OI Distribution Chart
+async function loadOIChart() {
+    try {
+        const resp = await fetch(`/options/api/oi?index=${currentIndex}&expiry=${currentExpiry}`);
+        const data = await resp.json();
+        
+        const strikes = Object.keys(data.ce_by_strike || {}).map(Number).sort((a, b) => a - b);
+        const ceData = strikes.map(s => data.ce_by_strike[s] || 0);
+        const peData = strikes.map(s => data.pe_by_strike[s] || 0);
+        
+        const ctx = document.getElementById('oi-chart').getContext('2d');
+        
+        if (oiChart) oiChart.destroy();
+        
+        oiChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: strikes,
+                datasets: [
+                    { label: 'CE OI', data: ceData, backgroundColor: 'rgba(16, 185, 129, 0.7)', borderColor: '#10b981', borderWidth: 1 },
+                    { label: 'PE OI', data: peData, backgroundColor: 'rgba(239, 68, 68, 0.7)', borderColor: '#ef4444', borderWidth: 1 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#94a3b8' } } },
+                scales: {
+                    x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+                    y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Failed to load OI chart:', err);
+    }
+}
+
+// Gamma Exposure Chart
+async function loadGEXChart() {
+    try {
+        const resp = await fetch(`/options/api/gex?index=${currentIndex}&expiry=${currentExpiry}`);
+        const data = await resp.json();
+        
+        // Aggregate by strike
+        const gexByStrike = {};
+        data.forEach(d => {
+            const strike = d.strike;
+            const exposure = d.gamma_exposure || 0;
+            if (!gexByStrike[strike]) gexByStrike[strike] = 0;
+            gexByStrike[strike] += exposure;
+        });
+        
+        const strikes = Object.keys(gexByStrike).map(Number).sort((a, b) => a - b);
+        const gexData = strikes.map(s => gexByStrike[s] || 0);
+        
+        const ctx = document.getElementById('gex-chart').getContext('2d');
+        
+        if (gexChart) gexChart.destroy();
+        
+        gexChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: strikes,
+                datasets: [{
+                    label: 'Net Gamma',
+                    data: gexData,
+                    backgroundColor: gexData.map(v => v > 0 ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)'),
+                    borderColor: gexData.map(v => v > 0 ? '#10b981' : '#ef4444'),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+                    y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Failed to load GEX chart:', err);
+    }
+}
+
+// Refresh
+function refresh() {
+    loadData();
+}
+</script>
+{% endblock %}

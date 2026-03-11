@@ -12,6 +12,7 @@ Usage:
 """
 import logging
 import duckdb
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +56,73 @@ class InstrumentMaster:
             logger.warning(f"[InstrumentMaster] resolve({tradingsymbol}) failed: {exc}")
             return None
 
+    def resolve_active_future(self, name: str, symbol_prefix: str = None,
+                              as_of: date = None) -> Optional[dict]:
+        """Resolve the nearest non-expired futures contract by commodity name.
+
+        Args:
+            name: Upstox name field, e.g. "CRUDE OIL", "GOLD"
+            symbol_prefix: tradingsymbol prefix to disambiguate variants,
+                           e.g. "CRUDEOIL FUT" (excludes CRUDEOILM), "GOLDM FUT"
+            as_of: reference date (defaults to today)
+        """
+        if not self._loaded:
+            return None
+        ref_date = (as_of or date.today()).isoformat()
+        try:
+            con = self._con()
+            if symbol_prefix:
+                row = con.execute(
+                    """SELECT instrument_key, tradingsymbol, name, expiry, lot_size
+                       FROM instruments
+                       WHERE name = ?
+                         AND instrument_type = 'FUT'
+                         AND tradingsymbol LIKE ?
+                         AND expiry >= ?
+                       ORDER BY expiry ASC
+                       LIMIT 1""",
+                    [name, symbol_prefix + "%", ref_date]
+                ).fetchone()
+            else:
+                row = con.execute(
+                    """SELECT instrument_key, tradingsymbol, name, expiry, lot_size
+                       FROM instruments
+                       WHERE name = ?
+                         AND instrument_type = 'FUT'
+                         AND expiry >= ?
+                       ORDER BY expiry ASC
+                       LIMIT 1""",
+                    [name, ref_date]
+                ).fetchone()
+            con.close()
+            if row:
+                return {
+                    "instrument_key": row[0],
+                    "tradingsymbol": row[1],
+                    "name": row[2],
+                    "expiry": row[3],
+                    "lot_size": row[4],
+                }
+            return None
+        except Exception as exc:
+            logger.warning(f"[InstrumentMaster] resolve_active_future({name}) failed: {exc}")
+            return None
+
+    def get_lot_size(self, instrument_key: str) -> int:
+        """Return lot_size for an instrument_key, or 1 if not found."""
+        if not self._loaded:
+            return 1
+        try:
+            con = self._con()
+            row = con.execute(
+                "SELECT lot_size FROM instruments WHERE instrument_key = ? LIMIT 1",
+                [instrument_key]
+            ).fetchone()
+            con.close()
+            return row[0] if row and row[0] else 1
+        except Exception:
+            return 1
+
     def find_options(
         self,
         name: str,
@@ -91,6 +159,44 @@ class InstrumentMaster:
         except Exception as exc:
             logger.warning(f"[InstrumentMaster] find_options failed: {exc}")
             return []
+
+    def resolve_option(self, name: str, expiry: "date", strike: float,
+                       option_type: str) -> Optional[str]:
+        """Resolve instrument_key by structured fields (bypasses tradingsymbol format mismatch).
+        e.g. resolve_option("NIFTY", date(2026,3,10), 22500, "CE") → "NSE_FO|54710"
+        Falls back to nearest available strike if exact match not found.
+        """
+        expiry_str = expiry.strftime("%Y-%m-%d")
+        results = self.find_options(name, expiry_str, strike, option_type)
+        if results:
+            return results[0]["instrument_key"]
+        # Fallback: nearest strike for this expiry
+        return self._nearest_strike_key(name, expiry_str, strike, option_type)
+
+    def _nearest_strike_key(self, name: str, expiry: str, strike: float,
+                            option_type: str) -> Optional[str]:
+        """Find the nearest available strike when exact ATM isn't listed."""
+        if not self._loaded:
+            return None
+        try:
+            con = self._con()
+            row = con.execute(
+                """SELECT instrument_key, strike FROM instruments
+                   WHERE name = ? AND expiry = ? AND instrument_type = ?
+                   ORDER BY ABS(strike - ?) LIMIT 1""",
+                [name, expiry, option_type.upper(), float(strike)]
+            ).fetchone()
+            con.close()
+            if row:
+                logger.info(
+                    f"[InstrumentMaster] Nearest strike fallback: "
+                    f"requested {strike:.0f}, found {row[1]:.0f} → {row[0]}"
+                )
+                return row[0]
+            return None
+        except Exception as exc:
+            logger.warning(f"[InstrumentMaster] nearest_strike lookup failed: {exc}")
+            return None
 
     def is_loaded(self) -> bool:
         return self._loaded and self._db_path.exists()

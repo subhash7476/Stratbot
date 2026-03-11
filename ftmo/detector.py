@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import Optional
 import pandas as pd
 
+from datetime import time as dtime
+
 from ftmo.config import (
     SWEEP_ATR_MULT,
     DISPLACEMENT_BODY_MULT,
@@ -103,6 +105,7 @@ def detect_structure_shift(
     df_after_sweep: pd.DataFrame,
     sweep: SweepEvent,
     m5_atr_series: pd.Series,
+    cutoff: dtime = None,
 ) -> Optional[StructureShift]:
     """Detect structure shift + displacement candle after a sweep.
 
@@ -112,25 +115,28 @@ def detect_structure_shift(
     if len(df_after_sweep) < 3:
         return None
 
+    _cutoff = cutoff if cutoff is not None else NY_END
     if sweep.direction == "HIGH_SWEEP":
-        return _detect_bearish_shift(df_after_sweep, sweep.sweep_price, m5_atr_series)
+        return _detect_bearish_shift(df_after_sweep, sweep.sweep_price, m5_atr_series, _cutoff)
     else:
-        return _detect_bullish_shift(df_after_sweep, sweep.sweep_price, m5_atr_series)
+        return _detect_bullish_shift(df_after_sweep, sweep.sweep_price, m5_atr_series, _cutoff)
 
 
 def _detect_bearish_shift(
     df: pd.DataFrame,
     sweep_high: float,
     m5_atr_series: pd.Series,
+    cutoff: dtime = None,
 ) -> Optional[StructureShift]:
     """After high sweep: look for lower high + bearish displacement candle."""
+    _cutoff = cutoff if cutoff is not None else NY_END
     recent_high = sweep_high
 
     for i in range(1, len(df)):
         bar = df.iloc[i]
 
         # Check if time is past cutoff
-        if bar["timestamp"].time() >= NY_END:
+        if bar["timestamp"].time() >= _cutoff:
             return None
 
         prev_bar = df.iloc[i - 1]
@@ -166,14 +172,16 @@ def _detect_bullish_shift(
     df: pd.DataFrame,
     sweep_low: float,
     m5_atr_series: pd.Series,
+    cutoff: dtime = None,
 ) -> Optional[StructureShift]:
     """After low sweep: look for higher low + bullish displacement candle."""
+    _cutoff = cutoff if cutoff is not None else NY_END
     recent_low = sweep_low
 
     for i in range(1, len(df)):
         bar = df.iloc[i]
 
-        if bar["timestamp"].time() >= NY_END:
+        if bar["timestamp"].time() >= _cutoff:
             return None
 
         prev_bar = df.iloc[i - 1]
@@ -207,21 +215,20 @@ def compute_trade_setup(
     shift: StructureShift,
     df_after_shift: pd.DataFrame,
     m15_atr: float,
+    cutoff: dtime = None,
 ) -> Optional[TradeSetup]:
-    """Find pullback entry into displacement zone. Compute SL and TP.
-
-    Entry must occur before 8:00 PM IST.
-    """
+    """Find pullback entry into displacement zone. Compute SL and TP."""
     if len(df_after_shift) == 0:
         return None
+
+    _cutoff = cutoff if cutoff is not None else NY_END
 
     # Displacement zone
     zone_top = max(shift.displacement_open, shift.displacement_close)
     zone_bottom = min(shift.displacement_open, shift.displacement_close)
 
     if shift.direction == "BEARISH":
-        # Short entry: price pulls back UP into displacement zone
-        entry_price = zone_bottom  # Enter at bottom of zone (conservative)
+        entry_price = zone_bottom
         stop_loss = sweep.sweep_price + SL_BUFFER_ATR_MULT * m15_atr
         risk = stop_loss - entry_price
         if risk <= 0:
@@ -230,9 +237,8 @@ def compute_trade_setup(
 
         for i in range(len(df_after_shift)):
             bar = df_after_shift.iloc[i]
-            if bar["timestamp"].time() >= NY_END:
+            if bar["timestamp"].time() >= _cutoff:
                 return None
-            # Pullback into zone: bar's high reaches into the zone
             if bar["high"] >= zone_bottom:
                 return TradeSetup(
                     timestamp=bar["timestamp"],
@@ -246,8 +252,7 @@ def compute_trade_setup(
                 )
 
     else:
-        # Long entry: price pulls back DOWN into displacement zone
-        entry_price = zone_top  # Enter at top of zone (conservative)
+        entry_price = zone_top
         stop_loss = sweep.sweep_price - SL_BUFFER_ATR_MULT * m15_atr
         risk = entry_price - stop_loss
         if risk <= 0:
@@ -256,7 +261,7 @@ def compute_trade_setup(
 
         for i in range(len(df_after_shift)):
             bar = df_after_shift.iloc[i]
-            if bar["timestamp"].time() >= NY_END:
+            if bar["timestamp"].time() >= _cutoff:
                 return None
             if bar["low"] <= zone_top:
                 return TradeSetup(
@@ -278,6 +283,7 @@ def scan_session(
     pre_ny_high: float,
     pre_ny_low: float,
     m15_atr: float,
+    cutoff: dtime = None,
 ) -> list[TradeSetup]:
     """Top-level: find all valid trade setups in a single NY session.
 
@@ -298,7 +304,7 @@ def scan_session(
         # M5 ATR series aligned to after_sweep
         m5_atr = after_sweep["atr"] if "atr" in after_sweep.columns else pd.Series([m15_atr] * len(after_sweep))
 
-        shift = detect_structure_shift(after_sweep, sweep, m5_atr)
+        shift = detect_structure_shift(after_sweep, sweep, m5_atr, cutoff)
         if shift is None:
             continue
 
@@ -307,7 +313,7 @@ def scan_session(
         if len(after_disp) == 0:
             continue
 
-        setup = compute_trade_setup(sweep, shift, after_disp, m15_atr)
+        setup = compute_trade_setup(sweep, shift, after_disp, m15_atr, cutoff)
         if setup is not None:
             setups.append(setup)
 

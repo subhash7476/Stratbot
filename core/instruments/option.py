@@ -17,9 +17,19 @@ class Option(Instrument):
     option_type: OptionType = None
     lot_size: int = 1
 
-    def __init__(self, symbol: str, underlying: str, expiry: date, strike: float, option_type: OptionType, lot_size: int = 1, multiplier: float = 1.0):
+    def __init__(
+        self,
+        symbol: str,
+        underlying: str,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+        lot_size: int = 1,
+        multiplier: float = 1.0,
+        type: InstrumentType = InstrumentType.OPTION,
+    ):
         object.__setattr__(self, 'symbol', symbol)
-        object.__setattr__(self, 'type', InstrumentType.OPTION)
+        object.__setattr__(self, 'type', type or InstrumentType.OPTION)
         object.__setattr__(self, 'multiplier', multiplier)
         object.__setattr__(self, 'underlying', underlying)
         object.__setattr__(self, 'expiry', expiry)

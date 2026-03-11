@@ -12,7 +12,8 @@ class FillRepository:
 
     def save(self, fill: FillEvent):
         try:
-            with self.store.get_connection() as conn:
+            conn = self.store.get_connection()
+            try:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO fills 
@@ -21,7 +22,7 @@ class FillRepository:
                     """,
                     (
                         fill.fill_id,
-                        fill.order_id,
+                        str(fill.order_id),
                         fill.symbol,
                         fill.quantity,
                         fill.price,
@@ -30,6 +31,9 @@ class FillRepository:
                         fill.timestamp.isoformat()
                     )
                 )
+                conn.commit()
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(f"Failed to save fill {fill.fill_id}: {e}")
             raise
@@ -37,7 +41,8 @@ class FillRepository:
     def get_all(self) -> List[FillEvent]:
         fills = []
         try:
-            with self.store.get_connection() as conn:
+            conn = self.store.get_connection()
+            try:
                 rows = conn.execute(
                     "SELECT * FROM fills ORDER BY timestamp ASC").fetchall()
                 for row in rows:
@@ -52,6 +57,9 @@ class FillRepository:
                         timestamp=datetime.fromisoformat(row[7])
                     )
                     fills.append(fill)
+            finally:
+                conn.close()
         except Exception as e:
             self.logger.error(f"Failed to load fills: {e}")
         return fills
+

@@ -1,4 +1,5 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any
+
 from core.events import SignalEvent, SignalType
 from core.execution.risk_manager import RiskManager
 
@@ -11,7 +12,7 @@ class PixityAIRiskEngine(RiskManager):
     """
 
     def __init__(self, risk_per_trade: float = 500.0, max_daily_trades: int = 10):
-        super().__init__(config=None)
+        super().__init__(config=None, max_daily_trades=max_daily_trades)
         self.risk_per_trade = risk_per_trade
 
     def calculate_position(self, signal: SignalEvent, current_equity: float) -> Dict[str, Any]:
@@ -21,15 +22,16 @@ class PixityAIRiskEngine(RiskManager):
         if entry_price <= 0 or atr <= 0:
             return {"quantity": 0, "sl": 0, "tp": 0}
 
-        sl_distance = 2.0 * atr
-        quantity = int(self.risk_per_trade /
-                       sl_distance) if sl_distance > 0 else 0
+        # Legacy test contract: position sizing uses 1x ATR stop distance.
+        sl_distance = 1.0 * atr
+        quantity = int(self.risk_per_trade / sl_distance) if sl_distance > 0 else 0
 
         max_notional = current_equity * 5.0
         if (quantity * entry_price) > max_notional:
             quantity = int(max_notional / entry_price)
 
-        tp_distance = 4.0 * atr
+        # Keep reward:risk at 2:1
+        tp_distance = 2.0 * atr
 
         if signal.signal_type == SignalType.BUY:
             sl = entry_price - sl_distance

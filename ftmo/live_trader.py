@@ -1,0 +1,354 @@
+"""Live MT5 trader for FTMO XAUUSD challenge.
+
+Polls M5 bars every 5 minutes, runs scan_session() at each session open,
+places and manages trades via MetaTrader5 API.
+
+Usage:
+    python -m ftmo.cli live --login 1512742557 --password <PASS> --server FTMO-Demo
+"""
+
+import logging
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import pandas as pd
+
+from ftmo.config import (
+    SYMBOL, ACCOUNT_SIZE,
+    PRE_NY_START, PRE_NY_END, NY_START, NY_END,
+    PRE_NY2_START, PRE_NY2_END, NY2_START, NY2_END,
+    RISK_PER_TRADE_PCT, POINT_VALUE, MAX_TRADES_PER_DAY,
+    MAX_OVERALL_LOSS, DAILY_MAX_LOSS,
+    RR_RATIO, SL_BUFFER_ATR_MULT,
+)
+from ftmo.indicators import enrich_with_indicators
+from ftmo.detector import scan_session
+from ftmo.risk import RiskEngine, AccountState
+
+logger = logging.getLogger(__name__)
+
+IST = "Asia/Kolkata"
+POLL_INTERVAL_SEC = 60          # Check every 60 seconds
+MIN_BARS_REQUIRED = 100         # Minimum bars needed before scanning
+SESSION_OPEN_BUFFER_MIN = 2     # Scan this many minutes after session opens
+
+
+def _get_mt5():
+    try:
+        import MetaTrader5 as mt5
+        return mt5
+    except ImportError:
+        raise ImportError("pip install MetaTrader5 required")
+
+
+class MT5LiveTrader:
+    def __init__(self, login: int, password: str, server: str):
+        self.login = login
+        self.password = password
+        self.server = server
+        self._connected = False
+        self.risk = RiskEngine()
+        self.state: Optional[AccountState] = None
+        self._open_ticket: Optional[int] = None  # one trade at a time
+        self._session1_scanned_today = False
+        self._session2_scanned_today = False
+        self._last_date = None
+
+    # ── Connection ──────────────────────────────────────────────────────────
+
+    def connect(self):
+        mt5 = _get_mt5()
+        if not mt5.initialize():
+            raise RuntimeError(f"MT5 initialize() failed: {mt5.last_error()}")
+        if not mt5.login(self.login, password=self.password, server=self.server):
+            mt5.shutdown()
+            raise RuntimeError(f"MT5 login failed: {mt5.last_error()}")
+
+        info = mt5.account_info()
+        balance = info.balance
+        logger.info(f"Connected: {info.login} @ {info.server} | Balance: {balance:,.2f}")
+        print(f"[MT5] Connected: login={info.login} server={info.server} balance={balance:,.2f} {info.currency}")
+
+        self.state = AccountState.fresh(balance)
+        self._connected = True
+
+    def disconnect(self):
+        try:
+            _get_mt5().shutdown()
+        except Exception:
+            pass
+        self._connected = False
+        logger.info("MT5 disconnected")
+
+    # ── Main Loop ────────────────────────────────────────────────────────────
+
+    def run(self):
+        if not self._connected:
+            raise RuntimeError("Call connect() first")
+
+        print(f"[LIVE] Starting XAUUSD challenge trader. Ctrl+C to stop.")
+        print(f"[LIVE] Session 1: {NY_START}–{NY_END} IST  |  Session 2: {NY2_START}–{NY2_END} IST")
+
+        try:
+            while True:
+                try:
+                    self._tick()
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    logger.error(f"Tick error: {e}", exc_info=True)
+                    print(f"[ERROR] {e}")
+                time.sleep(POLL_INTERVAL_SEC)
+        except KeyboardInterrupt:
+            print("\n[LIVE] Stopped by user.")
+        finally:
+            self.disconnect()
+
+    def _tick(self):
+        mt5 = _get_mt5()
+        now_ist = datetime.now(tz=timezone.utc).astimezone(
+            __import__("zoneinfo").ZoneInfo(IST)
+        )
+        today = now_ist.strftime("%Y-%m-%d")
+        now_t = now_ist.time()
+
+        # Reset daily state on new calendar day
+        if today != self._last_date:
+            self._on_new_day(today)
+
+        # Update account state from MT5
+        self._sync_account_state()
+
+        # Monitor any open position
+        if self._open_ticket is not None:
+            self._monitor_position(now_ist)
+            return  # Don't enter new trades while one is open
+
+        # Session 1: scan ~2 min after London open
+        if NY_START <= now_t < NY_END and not self._session1_scanned_today:
+            mins_into_session = (
+                now_ist.hour * 60 + now_ist.minute
+            ) - (NY_START.hour * 60 + NY_START.minute)
+            if mins_into_session >= SESSION_OPEN_BUFFER_MIN:
+                self._scan_and_trade(session=1, cutoff=NY_END)
+                self._session1_scanned_today = True
+
+        # Session 2: scan ~2 min after NY open
+        if NY2_START <= now_t < NY2_END and not self._session2_scanned_today:
+            mins_into_session = (
+                now_ist.hour * 60 + now_ist.minute
+            ) - (NY2_START.hour * 60 + NY2_START.minute)
+            if mins_into_session >= SESSION_OPEN_BUFFER_MIN:
+                self._scan_and_trade(session=2, cutoff=NY2_END)
+                self._session2_scanned_today = True
+
+    # ── Session Scan ────────────────────────────────────────────────────────
+
+    def _scan_and_trade(self, session: int, cutoff):
+        mt5 = _get_mt5()
+        print(f"[S{session}] Scanning at {datetime.now(tz=timezone.utc).astimezone(__import__('zoneinfo').ZoneInfo(IST)).strftime('%H:%M')} IST")
+
+        # Fetch enough M5 bars to cover pre-session range + session bars
+        bars_needed = 300  # ~25 hours of M5 data
+        rates = mt5.copy_rates_from_pos(SYMBOL, mt5.TIMEFRAME_M5, 0, bars_needed)
+        if rates is None or len(rates) < MIN_BARS_REQUIRED:
+            logger.warning(f"Insufficient bars: {len(rates) if rates else 0}")
+            return
+
+        df = pd.DataFrame(rates)
+        df["timestamp"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert(IST)
+        df = df.rename(columns={"tick_volume": "volume"})[
+            ["timestamp", "open", "high", "low", "close", "volume"]
+        ].sort_values("timestamp").reset_index(drop=True)
+
+        # Enrich with ATR
+        df_m5, _ = enrich_with_indicators(df)
+
+        # Extract pre-session range and session bars
+        if session == 1:
+            pre_s, pre_e = PRE_NY_START, PRE_NY_END
+            ny_s, ny_e = NY_START, NY_END
+        else:
+            pre_s, pre_e = PRE_NY2_START, PRE_NY2_END
+            ny_s, ny_e = NY2_START, NY2_END
+
+        t = df_m5["timestamp"].dt.time
+        pre_bars = df_m5[(t >= pre_s) & (t < pre_e)]
+        ny_bars = df_m5[(t >= ny_s) & (t < ny_e)].reset_index(drop=True)
+
+        if len(pre_bars) < 2:
+            logger.warning(f"S{session}: not enough pre-session bars ({len(pre_bars)})")
+            return
+        if len(ny_bars) < 3:
+            logger.warning(f"S{session}: not enough session bars ({len(ny_bars)})")
+            return
+
+        pre_high = pre_bars["high"].max()
+        pre_low = pre_bars["low"].min()
+        m15_atr = ny_bars.iloc[0]["m15_atr"] if "m15_atr" in ny_bars.columns else 0
+        if not m15_atr or pd.isna(m15_atr):
+            logger.warning(f"S{session}: m15_atr unavailable")
+            return
+
+        setups = scan_session(ny_bars, pre_high, pre_low, m15_atr, cutoff=cutoff)
+
+        if not setups:
+            print(f"[S{session}] No setup found (pre-range: {pre_high:.2f}–{pre_low:.2f}, ATR: {m15_atr:.2f})")
+            return
+
+        # Risk gate
+        risk_dollar = self.risk.calculate_risk_per_trade(self.state)
+        allowed, reason, status = self.risk.check_pre_trade(
+            self.state, risk_dollar, setups[0].timestamp
+        )
+        if not allowed:
+            print(f"[S{session}] Trade blocked: {reason}")
+            return
+
+        setup = setups[0]  # Take first valid setup
+        lot_size = self.risk.calculate_lot_size(self.state, setup.risk_points)
+        lot_size = round(max(0.01, lot_size), 2)
+
+        print(f"[S{session}] Setup: {setup.direction} | Entry: {setup.entry_price:.2f} "
+              f"SL: {setup.stop_loss:.2f} TP: {setup.take_profit:.2f} "
+              f"Risk: {setup.risk_points:.2f}pts | Lots: {lot_size}")
+
+        self._place_order(setup, lot_size)
+
+    # ── Order Management ────────────────────────────────────────────────────
+
+    def _place_order(self, setup, lot_size: float):
+        mt5 = _get_mt5()
+        symbol_info = mt5.symbol_info(SYMBOL)
+        if symbol_info is None:
+            logger.error(f"Symbol {SYMBOL} not found")
+            return
+
+        # Ensure symbol is in Market Watch
+        if not symbol_info.visible:
+            mt5.symbol_select(SYMBOL, True)
+
+        order_type = mt5.ORDER_TYPE_BUY if setup.direction == "LONG" else mt5.ORDER_TYPE_SELL
+        price = mt5.symbol_info_tick(SYMBOL).ask if setup.direction == "LONG" else mt5.symbol_info_tick(SYMBOL).bid
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": SYMBOL,
+            "volume": lot_size,
+            "type": order_type,
+            "price": price,
+            "sl": setup.stop_loss,
+            "tp": setup.take_profit,
+            "deviation": 20,        # max 20 points slippage
+            "magic": 20260311,      # strategy identifier
+            "comment": f"FTMO_{setup.direction}",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            code = result.retcode if result else "None"
+            comment = result.comment if result else mt5.last_error()
+            logger.error(f"Order failed: retcode={code} comment={comment}")
+            if code == 10027:
+                print(f"[ORDER] FAILED: AutoTrading is disabled in MT5 terminal.")
+                print(f"[ORDER] Fix: click the 'AutoTrading' button in the MT5 toolbar (green play icon),")
+                print(f"[ORDER]      or go to Tools → Options → Expert Advisors → Allow automated trading.")
+            else:
+                print(f"[ORDER] FAILED: {code} — {comment}")
+            return
+
+        self._open_ticket = result.order
+        print(f"[ORDER] Placed #{result.order}: {setup.direction} {lot_size} lots @ {price:.2f} "
+              f"SL={setup.stop_loss:.2f} TP={setup.take_profit:.2f}")
+        logger.info(f"Order #{result.order} placed: {setup.direction} {lot_size}L @ {price:.2f}")
+
+    def _monitor_position(self, now_ist):
+        mt5 = _get_mt5()
+        now_t = now_ist.time()
+
+        # Check if position still open
+        positions = mt5.positions_get(symbol=SYMBOL)
+        ticket_open = any(p.ticket == self._open_ticket for p in (positions or []))
+
+        if not ticket_open:
+            # Position closed (TP or SL hit by broker)
+            self._on_position_closed()
+            return
+
+        # Time cutoff — close manually if session ended
+        session_ended = now_t >= NY2_END or (NY_END <= now_t < NY2_START)
+        if session_ended:
+            self._close_position()
+
+    def _close_position(self):
+        mt5 = _get_mt5()
+        positions = mt5.positions_get(symbol=SYMBOL)
+        if not positions:
+            self._open_ticket = None
+            return
+
+        for pos in positions:
+            if pos.ticket != self._open_ticket:
+                continue
+            close_type = mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY
+            price = mt5.symbol_info_tick(SYMBOL).bid if pos.type == 0 else mt5.symbol_info_tick(SYMBOL).ask
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": SYMBOL,
+                "volume": pos.volume,
+                "type": close_type,
+                "position": pos.ticket,
+                "price": price,
+                "deviation": 20,
+                "magic": 20260311,
+                "comment": "FTMO_TIME_CUTOFF",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"[ORDER] Closed #{pos.ticket} at {price:.2f} (TIME_CUTOFF)")
+                logger.info(f"Closed #{pos.ticket} at {price:.2f}")
+            else:
+                logger.error(f"Close failed: {result.retcode if result else mt5.last_error()}")
+
+        self._on_position_closed()
+
+    def _on_position_closed(self):
+        mt5 = _get_mt5()
+        # Pull closed deal P&L from MT5 history
+        deals = mt5.history_deals_get(
+            position=self._open_ticket
+        )
+        pnl = sum(d.profit for d in deals) if deals else 0.0
+        self.state = self.risk.update_post_trade(self.state, pnl)
+        print(f"[POS] Closed. P&L: {pnl:+.2f} | Equity: {self.state.equity:,.2f}")
+        logger.info(f"Position {self._open_ticket} closed. PnL={pnl:.2f} Equity={self.state.equity:.2f}")
+        self._open_ticket = None
+
+    # ── Daily Reset ──────────────────────────────────────────────────────────
+
+    def _on_new_day(self, today: str):
+        if self._last_date is not None:
+            self.state = self.risk.new_day(self.state)
+            logger.info(f"New day: {today} | Equity: {self.state.equity:,.2f}")
+        self._session1_scanned_today = False
+        self._session2_scanned_today = False
+        self._last_date = today
+        print(f"[DAY] {today} | Equity: {self.state.equity:,.2f}")
+
+    def _sync_account_state(self):
+        """Sync equity from MT5 account info (truth source)."""
+        mt5 = _get_mt5()
+        info = mt5.account_info()
+        if info is not None:
+            # Update equity to actual MT5 value; preserve other state fields
+            import dataclasses
+            self.state = dataclasses.replace(
+                self.state,
+                equity=info.equity,
+                max_equity=max(self.state.max_equity, info.equity),
+            )

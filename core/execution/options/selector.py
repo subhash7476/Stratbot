@@ -81,8 +81,11 @@ class OptionsContractSelector:
         lot_size = policy.get("lot_size_override") or INDEX_LOT_SIZES.get(underlying, 50)
 
         from_date = timestamp.date() if isinstance(timestamp, datetime) else timestamp
-        expiry_weekday = INDEX_EXPIRY_WEEKDAY.get(underlying, 1)  # default Tuesday
-        expiry = self._nearest_expiry(from_date, expiry_days_min, expiry_weekday)
+        # Allow caller to pin to a specific expiry date (e.g., leg adjustments stay on same week)
+        expiry = policy.get("expiry_date")
+        if expiry is None:
+            expiry_weekday = INDEX_EXPIRY_WEEKDAY.get(underlying, 1)  # default Tuesday
+            expiry = self._nearest_expiry(from_date, expiry_days_min, expiry_weekday)
         strike = self._round_to_strike(underlying_price, step)
         option_type = OptionType.CALL if direction == SignalType.BUY else OptionType.PUT
 

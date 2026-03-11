@@ -7,13 +7,41 @@ import uuid
 import logging
 import pandas as pd
 
-from ftmo.config import NY_END, POINT_VALUE, RiskStatus
+from ftmo.config import (
+    NY_END, NY2_START, NY2_END, PRE_NY2_START, PRE_NY2_END,
+    POINT_VALUE, RiskStatus, ACCOUNT_SIZE,
+)
 from ftmo.indicators import enrich_with_indicators
-from ftmo.session import compute_pre_ny_ranges, get_ny_session_bars, get_trading_dates
+from ftmo.session import compute_pre_ny_ranges, get_all_ny_bars, get_trading_dates
 from ftmo.detector import scan_session, TradeSetup
 from ftmo.risk import RiskEngine, AccountState
 
 logger = logging.getLogger(__name__)
+
+
+def _precompute_session2(df_m5: pd.DataFrame) -> tuple[dict, dict]:
+    """Pre-compute Session 2: London range (13:30-19:00 IST) as pre-session reference,
+    NY trading window (19:00-23:00 IST). Returns (pre_ranges_dict, ny_bars_dict)."""
+    from datetime import time as dtime
+    from ftmo.config import PRE_NY2_START, PRE_NY2_END, NY2_START, NY2_END
+
+    df = df_m5.copy()
+    t = df["timestamp"].dt.time
+    df["s2_pre"] = (t >= PRE_NY2_START) & (t < PRE_NY2_END)
+    df["s2_ny"] = (t >= NY2_START) & (t < NY2_END)
+    df["session_date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
+
+    pre_ranges = {}
+    for date, group in df[df["s2_pre"]].groupby("session_date"):
+        if len(group) < 2:
+            continue
+        pre_ranges[date] = {"high": group["high"].max(), "low": group["low"].min()}
+
+    ny_bars = {
+        date: group.reset_index(drop=True)
+        for date, group in df[df["s2_ny"]].groupby("session_date")
+    }
+    return pre_ranges, ny_bars
 
 
 @dataclass
@@ -80,21 +108,26 @@ class FTMOBacktestEngine:
         self,
         start_date: str = None,
         end_date: str = None,
-        starting_balance: float = 50_000.0,
+        starting_balance: float = None,
     ) -> BacktestResult:
         # Enrich with indicators
         df_m5, df_m15 = enrich_with_indicators(self.df_m5_raw)
 
-        # Compute session data
+        # Pre-compute all session data in one vectorised pass
         pre_ny_ranges = compute_pre_ny_ranges(df_m5)
+        all_ny_bars = get_all_ny_bars(df_m5)
         trading_dates = get_trading_dates(df_m5)
+
+        # Session 2: London range → NY sweep (pre-group once)
+        _s2_pre, _s2_ny = _precompute_session2(df_m5)
 
         if start_date:
             trading_dates = [d for d in trading_dates if d >= start_date]
         if end_date:
             trading_dates = [d for d in trading_dates if d <= end_date]
 
-        state = AccountState.fresh(starting_balance)
+        _balance = starting_balance if starting_balance is not None else ACCOUNT_SIZE
+        state = AccountState.fresh(_balance)
         all_trades: list[TradeRecord] = []
         all_daily: list[DailyStatRecord] = []
         equity_curve: list[tuple[str, float]] = []
@@ -106,7 +139,7 @@ class FTMOBacktestEngine:
                 continue
 
             pre_ny = pre_ny_ranges[date]
-            df_ny = get_ny_session_bars(df_m5, date)
+            df_ny = all_ny_bars.get(date, pd.DataFrame())
             if len(df_ny) == 0:
                 continue
 
@@ -119,8 +152,18 @@ class FTMOBacktestEngine:
             day_wins = 0
             day_losses = 0
 
-            # Scan for setups
+            # Collect setups from both sessions, sorted by entry time
             setups = scan_session(df_ny, pre_ny.high, pre_ny.low, m15_atr)
+
+            # Session 2: London range → NY open sweep
+            s2_pre = _s2_pre.get(date)
+            s2_ny = _s2_ny.get(date, pd.DataFrame())
+            if s2_pre is not None and len(s2_ny) > 0:
+                s2_m15_atr = s2_ny.iloc[0]["m15_atr"] if "m15_atr" in s2_ny.columns else m15_atr
+                if not pd.isna(s2_m15_atr) and s2_m15_atr > 0:
+                    from ftmo.config import NY2_END as _NY2_END
+                    s2_setups = scan_session(s2_ny, s2_pre["high"], s2_pre["low"], s2_m15_atr, cutoff=_NY2_END)
+                    setups = sorted(setups + s2_setups, key=lambda s: s.timestamp)
 
             for setup in setups:
                 # Risk gate
@@ -132,12 +175,25 @@ class FTMOBacktestEngine:
                     logger.debug(f"  {date} trade blocked: {reason}")
                     break
 
+                # Determine which bar universe to use for trade management
+                df_trade_bars = s2_ny if (
+                    s2_pre is not None and len(s2_ny) > 0
+                    and setup.timestamp >= s2_ny.iloc[0]["timestamp"]
+                ) else df_ny
+
                 # Calculate lot size and dollar risk
                 lot_size = self.risk.calculate_lot_size(state, setup.risk_points)
-                actual_risk = lot_size * setup.risk_points * POINT_VALUE
+
+                # Determine cutoff time for this setup's session
+                from ftmo.config import NY2_END
+                is_s2 = (
+                    s2_pre is not None and len(s2_ny) > 0
+                    and setup.timestamp >= s2_ny.iloc[0]["timestamp"]
+                )
+                cutoff = NY2_END if is_s2 else NY_END
 
                 # Manage trade bar-by-bar
-                trade = self._manage_trade(setup, df_ny, date, pre_ny, m15_atr, lot_size)
+                trade = self._manage_trade(setup, df_trade_bars, date, pre_ny, m15_atr, lot_size, cutoff)
                 if trade is None:
                     continue
 
@@ -188,7 +244,7 @@ class FTMOBacktestEngine:
             daily_stats=all_daily,
             equity_curve=equity_curve,
             final_equity=state.equity,
-            total_pnl=state.equity - starting_balance,
+            total_pnl=state.equity - _balance,
         )
 
     def _manage_trade(
@@ -199,6 +255,7 @@ class FTMOBacktestEngine:
         pre_ny,
         m15_atr: float,
         lot_size: float,
+        session_cutoff=None,
     ) -> Optional[TradeRecord]:
         """Bar-by-bar trade management after entry."""
         # Find the entry bar index in df_ny
@@ -245,8 +302,9 @@ class FTMOBacktestEngine:
                     exit_reason = "TP"
                     break
 
-            # Time cutoff at 8:00 PM IST
-            if bar["timestamp"].time() >= NY_END:
+            # Time cutoff: use session-specific cutoff or global NY_END
+            _cutoff = session_cutoff if session_cutoff is not None else NY_END
+            if bar["timestamp"].time() >= _cutoff:
                 exit_price = bar["close"]
                 exit_time = bar["timestamp"]
                 exit_reason = "TIME_CUTOFF"
