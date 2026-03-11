@@ -11,10 +11,12 @@ import csv
 import logging
 import os
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
+import requests
 
 from ftmo.config import (
     SYMBOL, ACCOUNT_SIZE,
@@ -35,12 +37,75 @@ POLL_INTERVAL_SEC = 60          # Check every 60 seconds
 MIN_BARS_REQUIRED = 100         # Minimum bars needed before scanning
 SESSION_OPEN_BUFFER_MIN = 2     # Scan this many minutes after session opens
 DATA_FRESHNESS_MAX_MIN = 15     # Reject scan if latest bar is older than this
+NEWS_BLACKOUT_MIN = 30          # Skip scan if high-impact USD news within this window
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "trade_log.csv")
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "cache_m5.parquet")
+FF_CALENDAR_URL = "https://www.forexfactory.com/ff_calendar_thisweek.xml"
 _TRADE_LOG_HEADERS = [
     "date", "session", "direction", "entry", "sl", "tp",
     "lots", "outcome", "pnl", "equity_after", "ticket"
 ]
+
+
+def _fetch_himpact_usd_events(date_ist: datetime) -> list[dict]:
+    """Fetch high-impact USD events for today from ForexFactory XML feed.
+
+    Returns list of dicts with keys: title, dt (datetime in IST).
+    Falls back to empty list on any error — caller should fail open.
+    """
+    try:
+        resp = requests.get(
+            FF_CALENDAR_URL,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception as e:
+        logger.warning(f"Calendar fetch failed: {e}")
+        return []
+
+    from zoneinfo import ZoneInfo
+    ist_tz = ZoneInfo(IST)
+    eastern_tz = ZoneInfo("America/New_York")   # FF times are US Eastern
+    today_ist = date_ist.date()
+    events = []
+
+    for ev in root.findall("event"):
+        if ev.findtext("country", "") != "USD":
+            continue
+        if ev.findtext("impact", "") != "High":
+            continue
+        date_str = ev.findtext("date", "").strip()
+        time_str = ev.findtext("time", "").strip()
+        title = ev.findtext("title", "").strip()
+        if not date_str or not time_str:
+            continue
+        try:
+            # FF format: "Mar 11, 2026" and "8:30am"
+            dt_naive = datetime.strptime(f"{date_str} {time_str}", "%b %d, %Y %I:%M%p")
+            dt_eastern = dt_naive.replace(tzinfo=eastern_tz)
+            dt_ist = dt_eastern.astimezone(ist_tz)
+            if dt_ist.date() == today_ist:
+                events.append({"title": title, "dt": dt_ist})
+        except ValueError:
+            continue
+
+    if events:
+        names = ", ".join(e["title"] for e in events)
+        logger.info(f"High-impact USD events today: {names}")
+    return events
+
+
+def _is_news_blackout(scan_time_ist: datetime, events: list[dict]) -> tuple[bool, str]:
+    """Return (True, reason) if scan_time is within NEWS_BLACKOUT_MIN of any event."""
+    window = timedelta(minutes=NEWS_BLACKOUT_MIN)
+    for ev in events:
+        delta = abs(scan_time_ist - ev["dt"])
+        if delta <= window:
+            mins = int(delta.total_seconds() / 60)
+            return True, f"{ev['title']} in {mins}min"
+    return False, ""
 
 
 def _append_trade_log(row: dict):
@@ -74,6 +139,7 @@ class MT5LiveTrader:
         self._session2_scanned_today = False
         self._last_date = None
         self._last_cached_ts: Optional[pd.Timestamp] = None  # last bar written to cache
+        self._himpact_events: list[dict] = []                # today's high-impact USD events
 
     # ── Connection ──────────────────────────────────────────────────────────
 
@@ -119,6 +185,14 @@ class MT5LiveTrader:
         print(f"[LIVE] Starting XAUUSD challenge trader. Ctrl+C to stop.")
         print(f"[LIVE] Session 1: {NY_START}–{NY_END} IST  |  Session 2: {NY2_START}–{NY2_END} IST")
         print(f"[LIVE] Trade log: {TRADE_LOG_PATH}")
+
+        now_ist = datetime.now(tz=timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo(IST))
+        self._himpact_events = _fetch_himpact_usd_events(now_ist)
+        if self._himpact_events:
+            for ev in self._himpact_events:
+                print(f"[NEWS] High-impact today: {ev['title']} @ {ev['dt'].strftime('%H:%M')} IST")
+        else:
+            print("[NEWS] No high-impact USD events today (or calendar unavailable)")
 
         try:
             while True:
@@ -180,7 +254,15 @@ class MT5LiveTrader:
 
     def _scan_and_trade(self, session: int, cutoff):
         mt5 = _get_mt5()
-        print(f"[S{session}] Scanning at {datetime.now(tz=timezone.utc).astimezone(__import__('zoneinfo').ZoneInfo(IST)).strftime('%H:%M')} IST")
+        now_ist = datetime.now(tz=timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo(IST))
+        print(f"[S{session}] Scanning at {now_ist.strftime('%H:%M')} IST")
+
+        # News blackout check
+        blocked, reason = _is_news_blackout(now_ist, self._himpact_events)
+        if blocked:
+            print(f"[S{session}] NEWS_BLACKOUT — {reason} (±{NEWS_BLACKOUT_MIN}min window)")
+            logger.info(f"S{session}: news blackout: {reason}")
+            return
 
         # Fetch enough M5 bars to cover pre-session range + session bars
         bars_needed = 300  # ~25 hours of M5 data
@@ -472,6 +554,14 @@ class MT5LiveTrader:
         self._session1_scanned_today = False
         self._session2_scanned_today = False
         self._last_date = today
+
+        now_ist = datetime.now(tz=timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo(IST))
+        self._himpact_events = _fetch_himpact_usd_events(now_ist)
+        if self._himpact_events:
+            for ev in self._himpact_events:
+                print(f"[NEWS] High-impact today: {ev['title']} @ {ev['dt'].strftime('%H:%M')} IST")
+        else:
+            print("[NEWS] No high-impact USD events today")
         print(f"[DAY] {today} | Equity: {self.state.equity:,.2f}")
 
     def _sync_account_state(self):
