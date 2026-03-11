@@ -36,6 +36,7 @@ MIN_BARS_REQUIRED = 100         # Minimum bars needed before scanning
 SESSION_OPEN_BUFFER_MIN = 2     # Scan this many minutes after session opens
 DATA_FRESHNESS_MAX_MIN = 15     # Reject scan if latest bar is older than this
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "trade_log.csv")
+CACHE_PATH = os.path.join(os.path.dirname(__file__), "cache_m5.parquet")
 _TRADE_LOG_HEADERS = [
     "date", "session", "direction", "entry", "sl", "tp",
     "lots", "outcome", "pnl", "equity_after", "ticket"
@@ -72,6 +73,7 @@ class MT5LiveTrader:
         self._session1_scanned_today = False
         self._session2_scanned_today = False
         self._last_date = None
+        self._last_cached_ts: Optional[pd.Timestamp] = None  # last bar written to cache
 
     # ── Connection ──────────────────────────────────────────────────────────
 
@@ -90,6 +92,15 @@ class MT5LiveTrader:
 
         self.state = AccountState.fresh(balance)
         self._connected = True
+
+        # Seed last cached timestamp from existing parquet so we don't re-download old bars
+        if os.path.isfile(CACHE_PATH):
+            try:
+                existing = pd.read_parquet(CACHE_PATH, columns=["timestamp"])
+                self._last_cached_ts = existing["timestamp"].max()
+                print(f"[CACHE] Resuming from {self._last_cached_ts}")
+            except Exception as e:
+                logger.warning(f"Could not read cache: {e}")
 
     def disconnect(self):
         try:
@@ -138,6 +149,9 @@ class MT5LiveTrader:
 
         # Update account state from MT5
         self._sync_account_state()
+
+        # Append any new closed bars to local cache
+        self._update_data_cache()
 
         # Monitor any open position
         if self._open_ticket is not None:
@@ -412,6 +426,42 @@ class MT5LiveTrader:
                                 "pnl": round(pnl, 2), "equity_after": round(self.state.equity, 2)})
             self._pending_log = None
         self._open_ticket = None
+
+    # ── Data Cache ───────────────────────────────────────────────────────────
+
+    def _update_data_cache(self):
+        """Append any new closed M5 bars to cache_m5.parquet."""
+        mt5 = _get_mt5()
+        # Fetch last 20 bars (covers any missed bars since last poll)
+        rates = mt5.copy_rates_from_pos(SYMBOL, mt5.TIMEFRAME_M5, 1, 20)
+        # Start from bar index 1 to skip the currently open (incomplete) bar
+        if rates is None or len(rates) == 0:
+            return
+
+        df = pd.DataFrame(rates)
+        df["timestamp"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert(IST)
+        df = df.rename(columns={"tick_volume": "volume"})[
+            ["timestamp", "open", "high", "low", "close", "volume"]
+        ]
+
+        # Filter to only bars newer than last cached
+        if self._last_cached_ts is not None:
+            df = df[df["timestamp"] > self._last_cached_ts]
+
+        if df.empty:
+            return
+
+        # Append to parquet (read → concat → write)
+        if os.path.isfile(CACHE_PATH):
+            existing = pd.read_parquet(CACHE_PATH)
+            combined = pd.concat([existing, df], ignore_index=True)
+            combined = combined.drop_duplicates(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+        else:
+            combined = df.sort_values("timestamp").reset_index(drop=True)
+
+        combined.to_parquet(CACHE_PATH, index=False)
+        self._last_cached_ts = df["timestamp"].max()
+        logger.debug(f"Cache updated: +{len(df)} bars, last={self._last_cached_ts}")
 
     # ── Daily Reset ──────────────────────────────────────────────────────────
 
