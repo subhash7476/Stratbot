@@ -11,7 +11,6 @@ import csv
 import logging
 import os
 import time
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -40,7 +39,8 @@ DATA_FRESHNESS_MAX_MIN = 15     # Reject scan if latest bar is older than this
 NEWS_BLACKOUT_MIN = 30          # Skip scan if high-impact USD news within this window
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "trade_log.csv")
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "cache_m5.parquet")
-FF_CALENDAR_URL = "https://www.forexfactory.com/ff_calendar_thisweek.xml"
+FF_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+FF_CALENDAR_CACHE = os.path.join(os.path.dirname(__file__), ".calendar_cache.json")
 _TRADE_LOG_HEADERS = [
     "date", "session", "direction", "entry", "sl", "tp",
     "lots", "outcome", "pnl", "equity_after", "ticket"
@@ -48,22 +48,44 @@ _TRADE_LOG_HEADERS = [
 
 
 def _fetch_himpact_usd_events(date_ist: datetime) -> list[dict]:
-    """Fetch high-impact USD events for today from ForexFactory XML feed.
+    """Fetch high-impact USD events for today from ForexFactory CDN JSON feed.
 
+    Caches the weekly JSON to disk — only re-fetches if cache is from a prior day.
     Returns list of dicts with keys: title, dt (datetime in IST).
     Falls back to empty list on any error — caller should fail open.
     """
-    try:
-        resp = requests.get(
-            FF_CALENDAR_URL,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-    except Exception as e:
-        logger.warning(f"Calendar fetch failed: {e}")
-        return []
+    import json
+    today_str = date_ist.strftime("%Y-%m-%d")
+
+    # Use disk cache if it was written today
+    if os.path.isfile(FF_CALENDAR_CACHE):
+        try:
+            with open(FF_CALENDAR_CACHE) as f:
+                cached = json.load(f)
+            if cached.get("fetched_date") == today_str:
+                data = cached["data"]
+                logger.debug("Calendar loaded from disk cache")
+            else:
+                data = None  # stale — re-fetch
+        except Exception:
+            data = None
+    else:
+        data = None
+
+    if data is None:
+        try:
+            resp = requests.get(
+                FF_CALENDAR_URL,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            with open(FF_CALENDAR_CACHE, "w") as f:
+                json.dump({"fetched_date": today_str, "data": data}, f)
+        except Exception as e:
+            logger.warning(f"Calendar fetch failed: {e}")
+            return []
 
     from zoneinfo import ZoneInfo
     ist_tz = ZoneInfo(IST)
@@ -71,23 +93,20 @@ def _fetch_himpact_usd_events(date_ist: datetime) -> list[dict]:
     today_ist = date_ist.date()
     events = []
 
-    for ev in root.findall("event"):
-        if ev.findtext("country", "") != "USD":
+    for ev in data:
+        if ev.get("country", "") != "USD":
             continue
-        if ev.findtext("impact", "") != "High":
+        if ev.get("impact", "") != "High":
             continue
-        date_str = ev.findtext("date", "").strip()
-        time_str = ev.findtext("time", "").strip()
-        title = ev.findtext("title", "").strip()
-        if not date_str or not time_str:
+        date_str = ev.get("date", "")
+        title = ev.get("title", "").strip()
+        if not date_str:
             continue
         try:
-            # FF format: "Mar 11, 2026" and "8:30am"
-            dt_naive = datetime.strptime(f"{date_str} {time_str}", "%b %d, %Y %I:%M%p")
-            dt_eastern = dt_naive.replace(tzinfo=eastern_tz)
-            dt_ist = dt_eastern.astimezone(ist_tz)
-            if dt_ist.date() == today_ist:
-                events.append({"title": title, "dt": dt_ist})
+            # JSON format: ISO 8601 with offset e.g. "2026-03-11T08:30:00-04:00"
+            dt = datetime.fromisoformat(date_str).astimezone(ist_tz)
+            if dt.date() == today_ist:
+                events.append({"title": title, "dt": dt})
         except ValueError:
             continue
 
