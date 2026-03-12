@@ -37,6 +37,8 @@ MIN_BARS_REQUIRED = 100         # Minimum bars needed before scanning
 SESSION_OPEN_BUFFER_MIN = 2     # Scan this many minutes after session opens
 DATA_FRESHNESS_MAX_MIN = 15     # Reject scan if latest bar is older than this
 NEWS_BLACKOUT_MIN = 30          # Skip scan if high-impact USD news within this window
+NEWS_BLACKOUT_TIER1_MIN = 90    # Extended window for CPI, NFP, FOMC
+NEWS_TIER1_KEYWORDS = ("CPI", "NFP", "Non-Farm", "FOMC", "Fed ", "Interest Rate", "PCE")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "trade_log.csv")
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "cache_m5.parquet")
 FF_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -117,13 +119,18 @@ def _fetch_himpact_usd_events(date_ist: datetime) -> list[dict]:
 
 
 def _is_news_blackout(scan_time_ist: datetime, events: list[dict]) -> tuple[bool, str]:
-    """Return (True, reason) if scan_time is within NEWS_BLACKOUT_MIN of any event."""
-    window = timedelta(minutes=NEWS_BLACKOUT_MIN)
+    """Return (True, reason) if scan_time is within blackout window of any event.
+
+    Tier-1 events (CPI, NFP, FOMC, PCE) use 90min window; all others 30min.
+    """
     for ev in events:
+        is_tier1 = any(kw.lower() in ev["title"].lower() for kw in NEWS_TIER1_KEYWORDS)
+        window = timedelta(minutes=NEWS_BLACKOUT_TIER1_MIN if is_tier1 else NEWS_BLACKOUT_MIN)
         delta = abs(scan_time_ist - ev["dt"])
         if delta <= window:
             mins = int(delta.total_seconds() / 60)
-            return True, f"{ev['title']} in {mins}min"
+            tier = "Tier-1" if is_tier1 else "Tier-2"
+            return True, f"{ev['title']} [{tier}] {mins}min away"
     return False, ""
 
 
@@ -204,6 +211,18 @@ class MT5LiveTrader:
                       f"{'LONG' if pos.type == 0 else 'SHORT'} {pos.volume}L "
                       f"@ {pos.price_open:.2f} SL={pos.sl:.2f} TP={pos.tp:.2f}")
                 break
+
+        # Mark sessions as already scanned if we're past the scan window,
+        # preventing a double-scan after restart mid-session.
+        now_ist = datetime.now(tz=timezone.utc).astimezone(
+            __import__("zoneinfo").ZoneInfo(IST))
+        now_t = now_ist.time()
+        if now_t >= NY_START:
+            self._session1_scanned_today = True
+            print("[INIT] Session 1 window passed — marked as scanned")
+        if now_t >= NY2_START:
+            self._session2_scanned_today = True
+            print("[INIT] Session 2 window passed — marked as scanned")
 
     def disconnect(self):
         try:
@@ -397,8 +416,8 @@ class MT5LiveTrader:
 
         # Entry price validation — reject if market has moved too far from setup entry.
         # The setup entry is a limit-entry zone from historical bars. If price has blown
-        # past it by >50% of the risk distance, the structural premise is invalid.
-        max_adverse = 0.5 * setup.risk_points
+        # past it by >25% of the risk distance, the structural premise is invalid.
+        max_adverse = 0.25 * setup.risk_points
         if setup.direction == "LONG" and price < setup.entry_price - max_adverse:
             print(f"[ORDER] ENTRY_STALE — price {price:.2f} is {setup.entry_price - price:.2f}pts "
                   f"below entry {setup.entry_price:.2f} (max allowed: {max_adverse:.2f}pts)")
